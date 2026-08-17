@@ -163,23 +163,33 @@ class SeatingChartApp {
         ];
 
         const sortedByLast = this.sortStudentsByName(sampleStudents, 'last');
-
         const numRows = 4;
         const rows = this.distributeStudentsEquallyInOrder(sampleStudents, numRows, 'last');
 
-        const sampleClass = {
+        const rawSample = {
           id: 'class-' + Date.now(),
           name: 'Mystery Class',
           subjectId: 'subj_music',
           layout: 'rows',
           rowsCount: 4,
+          linesCount: 4,
           rowAlignment: 'center',
           rowsRowAlign: {},
           showFirstName: true,
           showLastName: false,
           showFaces: true,
+          showInitials: true,
+          showGradesAttendanceRatio: true,
           classList: [...sampleStudents],
+          studentProfiles: {
+            'Scooby Doo': { firstName: 'Scooby', lastName: 'Doo' },
+            'Shaggy Rogers': { firstName: 'Shaggy', lastName: 'Rogers' },
+            'Fred Jones': { firstName: 'Fred', lastName: 'Jones' },
+            'Velma Dinkley': { firstName: 'Velma', lastName: 'Dinkley' },
+            'Daphne Blake': { firstName: 'Daphne', lastName: 'Blake' }
+          },
           rows: rows,
+          lines: this.autoBalanceGroups([...sampleStudents], 4, 'last'),
           circle: [...sortedByLast],
           layoutsData: {
             half: this.autoBalanceGroups([...sampleStudents], 2, 'last'),
@@ -187,8 +197,15 @@ class SeatingChartApp {
             fourth: this.autoBalanceGroups([...sampleStudents], 4, 'last'),
             fifth: this.autoBalanceGroups([...sampleStudents], 5, 'last'),
             sixth: this.autoBalanceGroups([...sampleStudents], 6, 'last')
+          },
+          unplacedStudents: [],
+          attendanceDates: [],
+          subjectGrades: {
+            'subj_music': []
           }
         };
+
+        const sampleClass = this.sanitizeAndMigrateClass(rawSample, 'subj_music');
         this.classes.push(sampleClass);
         this.currentClassId = sampleClass.id;
         this.saveData();
@@ -254,19 +271,149 @@ class SeatingChartApp {
 
       saveData() {
         localStorage.setItem('classPlanner_data_v6', JSON.stringify(this.classes));
-        localStorage.setItem('classPlanner_currentId_v6', this.currentClassId);
+        localStorage.setItem('classPlanner_currentId_v6', this.currentClassId || '');
         localStorage.setItem('classPlanner_appName', this.appName || 'ClassPlanner');
         localStorage.setItem('classPlanner_subjects_v1', JSON.stringify(this.subjects));
+        localStorage.setItem('seatingApp_appName', this.appName || 'ClassPlanner');
+        localStorage.setItem('seatingApp_gradingStyle', this.gradingStyle || 'informal');
+        localStorage.setItem('seatingApp_suppressRemoveStudentWarning', this.suppressRemoveStudentWarning.toString());
+      }
+
+      sanitizeAndMigrateClass(c, defaultSubjId = 'subj_music') {
+        if (!c || typeof c !== 'object') return null;
+
+        if (!c.id) c.id = 'class-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+        if (!c.name || typeof c.name !== 'string') c.name = 'Class';
+
+        if (!c.subjectId) c.subjectId = defaultSubjId;
+
+        // Subject Grades migration & sanitization
+        if (!c.subjectGrades || typeof c.subjectGrades !== 'object') {
+          c.subjectGrades = {};
+        }
+        if (Array.isArray(c.gradeColumns) && c.gradeColumns.length > 0) {
+          if (!Array.isArray(c.subjectGrades[c.subjectId]) || c.subjectGrades[c.subjectId].length === 0) {
+            c.subjectGrades[c.subjectId] = [...c.gradeColumns];
+          }
+          delete c.gradeColumns;
+        }
+        Object.keys(c.subjectGrades).forEach(subjKey => {
+          if (!Array.isArray(c.subjectGrades[subjKey])) {
+            c.subjectGrades[subjKey] = [];
+          } else {
+            c.subjectGrades[subjKey] = c.subjectGrades[subjKey].map(col => {
+              if (!col || typeof col !== 'object') return null;
+              return {
+                id: col.id || ('grade_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4)),
+                date: col.date || '',
+                title: col.title || 'Assessment',
+                category: col.category || 'General',
+                gradingStyle: col.gradingStyle || 'informal',
+                maxPoints: typeof col.maxPoints === 'number' ? col.maxPoints : 10,
+                grades: (col.grades && typeof col.grades === 'object') ? { ...col.grades } : {}
+              };
+            }).filter(Boolean);
+          }
+        });
+
+        // Attendance Dates sanitization & chronological sorting
+        if (!Array.isArray(c.attendanceDates)) {
+          c.attendanceDates = [];
+        } else {
+          c.attendanceDates = c.attendanceDates.map(d => {
+            if (!d || typeof d !== 'object') return null;
+            return {
+              id: d.id || ('date_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4)),
+              date: d.date || '',
+              day: d.day || '',
+              timestamp: typeof d.timestamp === 'number' ? d.timestamp : Date.now(),
+              statuses: (d.statuses && typeof d.statuses === 'object') ? { ...d.statuses } : {}
+            };
+          }).filter(Boolean);
+          c.attendanceDates.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        }
+
+        // Layouts and Counts
+        if (!c.layout) c.layout = 'rows';
+        if (!c.rowsCount || typeof c.rowsCount !== 'number' || c.rowsCount < 1 || c.rowsCount > 6) c.rowsCount = 4;
+        if (!c.linesCount || typeof c.linesCount !== 'number' || c.linesCount < 1 || c.linesCount > 6) c.linesCount = 4;
+        if (!c.rowAlignment) c.rowAlignment = 'center';
+        if (!c.rowsRowAlign || typeof c.rowsRowAlign !== 'object') c.rowsRowAlign = {};
+        if (typeof c.divideRows !== 'boolean') c.divideRows = false;
+        if (!Array.isArray(c.dividedRowsData)) c.dividedRowsData = [];
+
+        // Display Flags
+        if (typeof c.showFirstName !== 'boolean') c.showFirstName = true;
+        if (typeof c.showLastName !== 'boolean') c.showLastName = false;
+        if (typeof c.showFaces !== 'boolean') c.showFaces = true;
+        if (typeof c.showInitials !== 'boolean') c.showInitials = true;
+        if (typeof c.showGradesAttendanceRatio !== 'boolean') c.showGradesAttendanceRatio = true;
+
+        // Class Rosters & Students
+        const allStudents = this.getAllClassStudents(c);
+        if (!Array.isArray(c.classList) || c.classList.length === 0) {
+          c.classList = [...allStudents];
+        } else {
+          c.classList = c.classList.map(s => String(s).trim()).filter(Boolean);
+        }
+
+        if (!c.studentProfiles || typeof c.studentProfiles !== 'object') {
+          c.studentProfiles = {};
+        }
+        c.classList.forEach(studentName => {
+          if (!c.studentProfiles[studentName]) {
+            const parts = studentName.split(/\s+/);
+            c.studentProfiles[studentName] = {
+              firstName: parts[0] || studentName,
+              lastName: parts.length > 1 ? parts.slice(1).join(' ') : ''
+            };
+          }
+        });
+
+        if (!Array.isArray(c.unplacedStudents)) c.unplacedStudents = [];
+        else c.unplacedStudents = c.unplacedStudents.map(s => String(s).trim()).filter(Boolean);
+
+        // Seating arrangements
+        if (!Array.isArray(c.rows)) c.rows = [[]];
+        c.rows = c.rows.map(r => Array.isArray(r) ? r.map(s => String(s).trim()).filter(Boolean) : []);
+
+        if (!Array.isArray(c.lines)) c.lines = [[]];
+        c.lines = c.lines.map(l => Array.isArray(l) ? l.map(s => String(s).trim()).filter(Boolean) : []);
+
+        if (!Array.isArray(c.circle)) c.circle = [...c.classList];
+        else c.circle = c.circle.map(s => String(s).trim()).filter(Boolean);
+
+        if (!c.layoutsData || typeof c.layoutsData !== 'object') c.layoutsData = {};
+        ['half', 'third', 'fourth', 'fifth', 'sixth'].forEach((layoutKey, idx) => {
+          const numGroups = idx + 2;
+          if (!Array.isArray(c.layoutsData[layoutKey]) || c.layoutsData[layoutKey].length < numGroups) {
+            c.layoutsData[layoutKey] = this.autoBalanceGroups([...c.classList], numGroups, 'last');
+          } else {
+            c.layoutsData[layoutKey] = c.layoutsData[layoutKey].map(g => Array.isArray(g) ? g.map(s => String(s).trim()).filter(Boolean) : []);
+          }
+        });
+
+        return c;
       }
 
       loadData() {
-        const savedClasses = localStorage.getItem('classPlanner_data_v6');
-        const savedId = localStorage.getItem('classPlanner_currentId_v6');
-        const savedAppName = localStorage.getItem('classPlanner_appName');
+        const savedClasses = localStorage.getItem('classPlanner_data_v6') || localStorage.getItem('seatingChartApp_classes_v5') || localStorage.getItem('seatingChartApp_classes');
+        const savedId = localStorage.getItem('classPlanner_currentId_v6') || localStorage.getItem('seatingChartApp_currentClassId');
+        const savedAppName = localStorage.getItem('classPlanner_appName') || localStorage.getItem('seatingApp_appName');
         const savedSubjects = localStorage.getItem('classPlanner_subjects_v1');
+        const savedGradingStyle = localStorage.getItem('seatingApp_gradingStyle');
+        const savedSuppressWarning = localStorage.getItem('seatingApp_suppressRemoveStudentWarning');
 
         if (savedAppName) {
           this.appName = savedAppName;
+        }
+
+        if (savedGradingStyle) {
+          this.gradingStyle = savedGradingStyle;
+        }
+
+        if (savedSuppressWarning !== null) {
+          this.suppressRemoveStudentWarning = (savedSuppressWarning === 'true');
         }
 
         if (savedSubjects) {
@@ -294,45 +441,13 @@ class SeatingChartApp {
           try {
             const parsed = JSON.parse(savedClasses);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              this.classes = parsed;
               const defaultSubjId = this.subjects[0] ? this.subjects[0].id : 'subj_music';
-              this.classes.forEach(c => {
-                if (!c) return;
-                if (!c.id) c.id = 'class-' + Date.now();
-                if (!c.name) c.name = 'Class';
-                if (!c.subjectId) c.subjectId = defaultSubjId;
-                if (!c.subjectGrades || typeof c.subjectGrades !== 'object') c.subjectGrades = {};
-                if (Array.isArray(c.gradeColumns) && c.gradeColumns.length > 0 && !c.subjectGrades['subj_music']) {
-                  c.subjectGrades['subj_music'] = [...c.gradeColumns];
-                }
-                if (!c.layout) c.layout = 'rows';
-                if (!Array.isArray(c.rows)) c.rows = [[]];
-                c.rows = c.rows.map(r => Array.isArray(r) ? r.filter(s => typeof s === 'string' && s.trim()) : []);
-                if (!c.rowsCount) c.rowsCount = 4;
-                if (!c.linesCount) c.linesCount = 4;
-                if (!c.rowAlignment) c.rowAlignment = 'center';
-                if (!c.rowsRowAlign) c.rowsRowAlign = {};
-                if (typeof c.showFirstName !== 'boolean') c.showFirstName = true;
-                if (typeof c.showLastName !== 'boolean') c.showLastName = false;
-                if (typeof c.showFaces !== 'boolean') c.showFaces = true;
-                if (!Array.isArray(c.unplacedStudents)) c.unplacedStudents = [];
-
-                const all = this.getAllClassStudents(c);
-                if (!c.classList || !Array.isArray(c.classList)) c.classList = [...all];
-                else c.classList = c.classList.filter(s => typeof s === 'string' && s.trim());
-
-                if (!c.circle || !Array.isArray(c.circle)) c.circle = [...all];
-                else c.circle = c.circle.filter(s => typeof s === 'string' && s.trim());
-
-                if (!c.layoutsData || typeof c.layoutsData !== 'object') c.layoutsData = {};
-
-                if (!c.layoutsData.half || !Array.isArray(c.layoutsData.half) || c.layoutsData.half.length < 2 || c.layoutsData.half.flat().length === 0) c.layoutsData.half = this.autoBalanceGroups([...all], 2, 'last');
-                if (!c.layoutsData.third || !Array.isArray(c.layoutsData.third) || c.layoutsData.third.length < 3 || c.layoutsData.third.flat().length === 0) c.layoutsData.third = this.autoBalanceGroups([...all], 3, 'last');
-                if (!c.layoutsData.fourth || !Array.isArray(c.layoutsData.fourth) || c.layoutsData.fourth.length < 4 || c.layoutsData.fourth.flat().length === 0) c.layoutsData.fourth = this.autoBalanceGroups([...all], 4, 'last');
-                if (!c.layoutsData.fifth || !Array.isArray(c.layoutsData.fifth) || c.layoutsData.fifth.length < 5 || c.layoutsData.fifth.flat().length === 0) c.layoutsData.fifth = this.autoBalanceGroups([...all], 5, 'last');
-                if (!c.layoutsData.sixth || !Array.isArray(c.layoutsData.sixth) || c.layoutsData.sixth.length < 6 || c.layoutsData.sixth.flat().length === 0) c.layoutsData.sixth = this.autoBalanceGroups([...all], 6, 'last');
-              });
-              this.currentClassId = savedId;
+              this.classes = parsed.map(c => this.sanitizeAndMigrateClass(c, defaultSubjId)).filter(Boolean);
+              if (savedId && this.classes.some(c => c.id === savedId)) {
+                this.currentClassId = savedId;
+              } else if (this.classes[0]) {
+                this.currentClassId = this.classes[0].id;
+              }
             } else {
               this.classes = [];
             }
@@ -585,15 +700,19 @@ class SeatingChartApp {
           filename += '.json';
         }
 
+        const defaultSubjId = this.subjects[0] ? this.subjects[0].id : 'subj_music';
+        const sanitizedClasses = (this.classes || []).map(c => this.sanitizeAndMigrateClass(c, defaultSubjId)).filter(Boolean);
+
         const exportPayload = {
           app: 'ClassPlanner',
           version: '1.3',
           appName: this.appName || 'ClassPlanner',
           exportedAt: new Date().toISOString(),
           gradingStyle: this.gradingStyle || 'informal',
-          currentClassId: this.currentClassId,
-          subjects: this.subjects,
-          classes: this.classes
+          suppressRemoveStudentWarning: this.suppressRemoveStudentWarning === true,
+          currentClassId: this.currentClassId || (sanitizedClasses[0] ? sanitizedClasses[0].id : null),
+          subjects: this.subjects || [],
+          classes: sanitizedClasses
         };
 
         const jsonStr = JSON.stringify(exportPayload, null, 2);
@@ -644,24 +763,39 @@ class SeatingChartApp {
               localStorage.setItem('seatingApp_gradingStyle', this.gradingStyle);
             }
 
-            if (Array.isArray(importedData.subjects)) {
-              this.subjects = importedData.subjects;
+            if (typeof importedData.suppressRemoveStudentWarning === 'boolean') {
+              this.suppressRemoveStudentWarning = importedData.suppressRemoveStudentWarning;
+              localStorage.setItem('seatingApp_suppressRemoveStudentWarning', this.suppressRemoveStudentWarning.toString());
             }
 
-            if (Array.isArray(importedData.classes)) {
-              this.classes = importedData.classes;
-              if (importedData.currentClassId && this.classes.some(c => c.id === importedData.currentClassId)) {
-                this.currentClassId = importedData.currentClassId;
-              } else if (this.classes[0]) {
-                this.currentClassId = this.classes[0].id;
-              }
-            } else if (Array.isArray(importedData)) {
-              this.classes = importedData;
-              if (this.classes[0]) this.currentClassId = this.classes[0].id;
+            if (Array.isArray(importedData.subjects) && importedData.subjects.length > 0) {
+              this.subjects = importedData.subjects;
+            } else if (!Array.isArray(this.subjects) || this.subjects.length === 0) {
+              this.subjects = [
+                {
+                  id: 'subj_music',
+                  name: 'Music',
+                  categories: ['Singing', 'Instruments', 'Movement', 'Culture', 'Theory', 'Effort']
+                }
+              ];
+            }
+
+            const defaultSubjId = this.subjects[0] ? this.subjects[0].id : 'subj_music';
+            let rawClasses = Array.isArray(importedData.classes) ? importedData.classes : (Array.isArray(importedData) ? importedData : []);
+
+            this.classes = rawClasses.map(c => this.sanitizeAndMigrateClass(c, defaultSubjId)).filter(Boolean);
+
+            if (importedData.currentClassId && this.classes.some(c => c.id === importedData.currentClassId)) {
+              this.currentClassId = importedData.currentClassId;
+            } else if (this.classes[0]) {
+              this.currentClassId = this.classes[0].id;
+            } else {
+              this.currentClassId = null;
             }
 
             this.saveData();
             this.closeModal('settingsModal');
+            this.renderClassDropdown();
             this.render();
             if (this.currentViewMode === 'attendance') this.renderAttendanceTable();
             if (this.currentViewMode === 'grades') this.renderGradesTable();
