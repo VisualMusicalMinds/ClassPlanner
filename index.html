@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClassPlanner 1.0</title>
+  <title>ClassPlanner 1.3</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
@@ -39,10 +39,12 @@
 
     <div class="brand">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span id="appTitleBrandText">ClassPlanner</span> <span style="font-size: 0.75rem; background: #e0e7ff; color: var(--primary); padding: 2px 6px; border-radius: 4px; font-weight: bold;">1.0</span>
+      <span id="appTitleBrandText">ClassPlanner</span> <span style="font-size: 0.75rem; background: #e0e7ff; color: var(--primary); padding: 2px 6px; border-radius: 4px; font-weight: bold;">1.3</span>
     </div>
 
     <div class="edit-toggle-container" style="background: transparent; padding: 0;">
+      <button id="headerAddGradeBtn" class="btn" style="background: #dc2626; color: #ffffff; border: 1.5px solid #b91c1c; font-weight: bold; font-size: 0.85rem; padding: 6px 14px; box-shadow: 0 1px 3px rgba(220,38,38,0.25); display: none;" onclick="app.openAddGradeColumnModal()">Add Grade</button>
+      <button id="headerAddAttendanceBtn" class="btn" style="background: #2563eb; color: #ffffff; border: 1.5px solid #1d4ed8; font-weight: bold; font-size: 0.85rem; padding: 6px 14px; box-shadow: 0 1px 3px rgba(37,99,235,0.25); display: none;" onclick="app.openAddAttendanceDateModal()">Add Date</button>
       <button id="headerLayoutBtn" class="btn btn-outline" style="font-weight: 600;" onclick="app.toggleLayoutMenu(event)">Layout ▾</button>
       <button id="headerEditBtn" class="btn btn-secondary" style="font-weight: bold; min-width: 65px;" onclick="app.toggleEditMode()">EDIT</button>
       <button id="btnResize" class="btn btn-outline" style="padding: 6px 10px;" onclick="app.toggleFullScreen()" title="Full Screen View">
@@ -109,56 +111,91 @@
     </div>
   </div>
 
+  <!-- Floating Full Screen Controls (Active in all Full Screen views) -->
+  <div class="fullscreen-class-controls">
+    <!-- Subject Tab for Fullscreen (Active in Grades Fullscreen view) -->
+    <div id="fullscreenSubjectTab" style="display: none; align-items: stretch; border-radius: 8px; overflow: hidden; border: 1.5px solid #dc2626; box-shadow: var(--shadow-lg); background: white;">
+      <span style="background: #dc2626; color: #ffffff; font-weight: 800; font-size: 0.82rem; padding: 6px 12px; display: flex; align-items: center; text-transform: uppercase; letter-spacing: 0.5px; user-select: none;">Subject:</span>
+      <select id="fullscreenSubjectSelect" onchange="app.switchGradeSubject(this.value)" style="border: none; background: #ffffff; font-size: 0.95rem; font-weight: 700; color: #1e293b; padding: 6px 12px; outline: none; cursor: pointer; max-width: 180px; text-overflow: ellipsis; white-space: nowrap;"></select>
+    </div>
+
+    <!-- Class Tab for Fullscreen -->
+    <div id="fullscreenClassTab" style="display: inline-flex; align-items: stretch; border-radius: 8px; overflow: hidden; border: 1.5px solid #2563eb; box-shadow: var(--shadow-lg); background: white;">
+      <span style="background: #2563eb; color: #ffffff; font-weight: 800; font-size: 0.82rem; padding: 6px 12px; display: flex; align-items: center; text-transform: uppercase; letter-spacing: 0.5px; user-select: none;">Class:</span>
+      <select id="fullscreenClassSelect" onchange="app.switchClass(this.value)" style="border: none; background: #ffffff; font-size: 0.95rem; font-weight: 700; color: #1e293b; padding: 6px 12px; outline: none; cursor: pointer; max-width: 200px; text-overflow: ellipsis; white-space: nowrap;"></select>
+    </div>
+
+    <button id="fullscreenCameraBtn" class="btn btn-outline" style="padding: 8px 12px; background: white; box-shadow: var(--shadow-lg); transition: all 0.2s ease;" onclick="app.triggerFullScreenCameraClick(this)" title="Camera Snapshot">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path>
+        <circle cx="12" cy="13" r="3"></circle>
+      </svg>
+    </button>
+  </div>
+  <div class="fullscreen-controls">
+    <button id="fullscreenAddGradeBtn" class="btn" style="background: #dc2626; color: #ffffff; border: 1.5px solid #b91c1c; font-weight: bold; font-size: 0.85rem; padding: 7px 14px; box-shadow: var(--shadow-lg); display: none;" onclick="app.openAddGradeColumnModal()">Add Grade</button>
+    <button id="fullscreenAddAttendanceBtn" class="btn" style="background: #2563eb; color: #ffffff; border: 1.5px solid #1d4ed8; font-weight: bold; font-size: 0.85rem; padding: 7px 14px; box-shadow: var(--shadow-lg); display: none;" onclick="app.openAddAttendanceDateModal()">Add Date</button>
+    <button id="fullscreenLayoutBtn" class="btn btn-outline" style="font-weight: 600; background: white; box-shadow: var(--shadow-lg);" onclick="app.toggleLayoutMenu(event)">Layout ▾</button>
+    <button id="fullscreenEditBtn" class="btn btn-secondary" style="font-weight: bold; padding: 8px 14px; box-shadow: var(--shadow-lg);" onclick="app.toggleEditMode()">EDIT</button>
+    <button class="fullscreen-exit-btn" onclick="app.toggleFullScreen()" title="Exit Full Screen">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+        <polyline points="15 3 21 3 21 9"></polyline>
+        <polyline points="9 21 3 21 3 15"></polyline>
+        <line x1="21" y1="3" x2="14" y2="10"></line>
+        <line x1="3" y1="21" x2="10" y2="14"></line>
+      </svg>
+      Exit Full Screen
+    </button>
+  </div>
+
   <div id="seatingAppBody" class="app-body">
     <aside class="sidebar">
 
-      <div class="panel" style="padding: 12px 14px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span onclick="app.openEditClassesModal()" style="font-weight: 700; font-size: 0.9rem; color: var(--primary); text-decoration: underline; cursor: pointer; user-select: none;" title="Open Edit Class Menu">Class:</span>
-          <select id="classSelect" onchange="app.switchClass(this.value)" style="flex: 1; font-weight: 600; padding: 6px 10px;"></select>
+      <div class="panel" style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+        <!-- Blue Class Tab -->
+        <div style="display: flex; align-items: stretch; border-radius: 8px; overflow: hidden; border: 1.5px solid #2563eb; box-shadow: 0 1px 3px rgba(37, 99, 235, 0.15); background: white; width: 100%; box-sizing: border-box;">
+          <span style="background: #2563eb; color: #ffffff; font-weight: 800; font-size: 0.82rem; padding: 7px 12px; display: flex; align-items: center; text-transform: uppercase; letter-spacing: 0.5px; user-select: none; flex-shrink: 0;">Class:</span>
+          <select id="classSelect" onchange="app.switchClass(this.value)" style="flex: 1; min-width: 0; border: none; background: #ffffff; font-size: 0.95rem; font-weight: 700; color: #1e293b; padding: 7px 10px; outline: none; cursor: pointer; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;"></select>
+        </div>
+
+        <!-- 3 Items Row: Manage, Recycling/Refresh, Attendance -->
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+          <button type="button" class="btn btn-secondary" onclick="app.openEditClassesModal()" style="font-weight: bold; font-size: 0.85rem; padding: 6px 10px;" title="Manage Classes">Manage</button>
+          <button id="btnAttendanceRefresh" class="btn btn-outline" style="padding: 6px 10px; font-size: 0.9rem;" onclick="app.reinstateAllPresent()" title="Reinstate all students as present">🔄</button>
+          <button id="btnTakeAttendanceStart" class="btn" style="background: #2563eb; color: #ffffff; border: 1.5px solid #1d4ed8; font-weight: bold; font-size: 0.85rem; padding: 6px 12px; flex: 1; max-width: 130px; box-shadow: 0 1px 2px rgba(37,99,235,0.2);" onclick="app.onAttendanceButtonClick()">Attendance</button>
         </div>
       </div>
 
-      <div class="panel" style="padding: 12px 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div id="attendanceStatusIcon" class="attendance-status-icon unconfirmed" title="Attendance Status">
-              <span class="icon-dash">&minus;</span>
-              <span class="icon-check" style="display: none;">&check;</span>
-            </div>
-            <div style="line-height: 1.15; font-weight: 700; font-size: 0.85rem; color: var(--text-dark);">
-              Take<br>Attendance
-            </div>
+      <div class="panel" style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+        <!-- Red Subject Tab -->
+        <div style="display: flex; align-items: stretch; border-radius: 8px; overflow: hidden; border: 1.5px solid #dc2626; box-shadow: 0 1px 3px rgba(220, 38, 38, 0.15); background: white; width: 100%; box-sizing: border-box;">
+          <span style="background: #dc2626; color: #ffffff; font-weight: 800; font-size: 0.82rem; padding: 7px 12px; display: flex; align-items: center; text-transform: uppercase; letter-spacing: 0.5px; user-select: none; flex-shrink: 0;">Subject:</span>
+          <select id="sidebarSubjectSelect" onchange="app.switchGradeSubject(this.value)" style="flex: 1; min-width: 0; border: none; background: #ffffff; font-size: 0.95rem; font-weight: 700; color: #1e293b; padding: 7px 10px; outline: none; cursor: pointer; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;"></select>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+          <button type="button" class="btn btn-secondary" onclick="app.openEditSubjectsModal()" style="font-weight: bold; font-size: 0.85rem; padding: 6px 10px;" title="Manage Subjects">Manage</button>
+          
+          <div id="gradeStatusIcon" class="attendance-status-icon unconfirmed" style="border-color: #fca5a5; background: #fef2f2; margin: 0 auto;" title="Add Grade Status">
+            <span class="icon-plus" style="color: #dc2626; font-size: 1.1rem; font-weight: 900;">+</span>
+            <span class="icon-check" style="display: none; color: #dc2626; font-size: 1rem; font-weight: 900;">&check;</span>
           </div>
-          <button id="btnTakeAttendanceChoose" class="btn btn-secondary" style="font-weight: bold; padding: 6px 16px;" onclick="app.openAttendanceDateModal()">Choose</button>
+
+          <button id="btnGradeSessionStart" class="btn" style="background: #dc2626; color: #ffffff; border: 1.5px solid #b91c1c; font-weight: bold; font-size: 0.85rem; padding: 6px 12px; flex: 1; max-width: 130px; box-shadow: 0 1px 2px rgba(220,38,38,0.2);" onclick="app.onGradeSessionButtonClick()">Add Grade</button>
         </div>
       </div>
 
-      <div class="panel" style="padding: 12px 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div id="gradeStatusIcon" class="attendance-status-icon unconfirmed" style="border-color: #a7f3d0; background: #ecfdf5;" title="Add Grade Status">
-              <span class="icon-plus" style="color: #10b981; font-size: 1.1rem; font-weight: 900;">+</span>
-              <span class="icon-check" style="display: none; color: #10b981; font-size: 1rem; font-weight: 900;">&check;</span>
-            </div>
-            <div style="line-height: 1.15; font-weight: 700; font-size: 0.85rem; color: var(--text-dark);">
-              Add<br>Grade
-            </div>
-          </div>
-          <button id="btnGradeSessionStart" class="btn btn-secondary" style="font-weight: bold; padding: 6px 16px;" onclick="app.onGradeSessionButtonClick()">Start</button>
-        </div>
-      </div>
-
-      <div class="panel" style="display: flex; flex-direction: column; flex: 1; min-height: 250px;">
+      <div class="panel" style="display: flex; flex-direction: column; flex: 1; min-height: 220px; box-sizing: border-box;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <h3>Total Students</h3>
           <span id="rosterCount" style="font-size: 0.85rem; font-weight: bold; color: var(--primary); background: #e0e7ff; padding: 2px 8px; border-radius: 12px;">0/0</span>
         </div>
 
-        <ul id="rosterList" class="roster-list" style="flex: 1; overflow-y: auto; background: #fafafa; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px;"></ul>
+        <ul id="rosterList" class="roster-list" style="flex: 1; min-height: 0; overflow-y: auto; background: #fafafa; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px;"></ul>
       </div>
 
-      <div class="panel" style="display: flex; flex-direction: column; height: 260px; flex-shrink: 0;">
+      <div class="panel" style="display: flex; flex-direction: column; height: 364px; flex-shrink: 0; box-sizing: border-box;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <div style="display: flex; align-items: center; gap: 6px;">
             <h3>Class List</h3>
@@ -169,38 +206,16 @@
             <button id="classListEditBtn" class="btn btn-secondary" style="font-weight: bold; padding: 2px 8px; font-size: 0.75rem;" onclick="app.toggleClassListEditMode()">EDIT</button>
           </div>
         </div>
-        <ul id="classListUL" class="roster-list" style="flex: 1; overflow-y: auto; background: #fafafa; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px;"></ul>
-        <div class="student-input-box" style="margin-top: 8px;">
+        <ul id="classListUL" class="roster-list" style="flex: 1; min-height: 0; overflow-y: auto; background: #fafafa; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px;"></ul>
+        <div class="student-input-box" style="margin-top: 8px; margin-bottom: 0;">
           <input type="text" id="singleStudentInput" placeholder="Add name..." onkeydown="if(event.key==='Enter') app.addSingleStudent()">
           <button class="btn btn-primary" onclick="app.addSingleStudent()">Add</button>
         </div>
+        <button type="button" class="btn btn-secondary" style="width: 100%; margin-top: 6px; font-weight: bold; font-size: 0.85rem; padding: 6px 12px; background: #e0e7ff; color: var(--primary); border: 1.5px solid #c7d2fe; border-radius: 6px; cursor: pointer; transition: all 0.15s ease;" onclick="app.openBulkModal()">Add List</button>
       </div>
     </aside>
 
     <main class="viewport">
-      <div class="fullscreen-class-controls">
-        <select id="fullscreenClassSelect" onchange="app.switchClass(this.value)"></select>
-        <button id="fullscreenCameraBtn" class="btn btn-outline" style="padding: 8px 12px; background: white; box-shadow: var(--shadow-lg); transition: all 0.2s ease;" onclick="app.triggerCameraClick(this)" title="Camera Snapshot">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path>
-            <circle cx="12" cy="13" r="3"></circle>
-          </svg>
-        </button>
-      </div>
-      <div class="fullscreen-controls">
-        <button id="fullscreenLayoutBtn" class="btn btn-outline" style="font-weight: 600; background: white; box-shadow: var(--shadow-lg);" onclick="app.toggleLayoutMenu(event)">Layout ▾</button>
-        <button id="fullscreenEditBtn" class="btn btn-secondary" style="font-weight: bold; padding: 8px 14px; box-shadow: var(--shadow-lg);" onclick="app.toggleEditMode()">EDIT</button>
-        <button class="fullscreen-exit-btn" onclick="app.toggleFullScreen()" title="Exit Full Screen">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <polyline points="15 3 21 3 21 9"></polyline>
-            <polyline points="9 21 3 21 3 15"></polyline>
-            <line x1="21" y1="3" x2="14" y2="10"></line>
-            <line x1="3" y1="21" x2="10" y2="14"></line>
-          </svg>
-          Exit Full Screen
-        </button>
-      </div>
       <div id="chalkboardFront" class="chalkboard-front">FRONT OF CLASSROOM / CHALKBOARD</div>
       <div id="chartContainer" class="chart-container layout-rows"></div>
     </main>
@@ -209,11 +224,25 @@
   <!-- Attendance Register View -->
   <div id="attendanceAppBody" class="app-body" style="display: none; padding: 24px; overflow-y: auto; background-color: #f1f5f9; justify-content: center; align-items: flex-start;">
     <div class="panel" style="max-width: 900px; width: 100%; padding: 24px; box-shadow: var(--shadow-lg); background: white; border-radius: 12px; margin-top: 10px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
-        <h2 style="font-size: 1.35rem; color: var(--text-dark); margin: 0; display: flex; align-items: center; gap: 10px;">
-          <span>📋</span> Attendance Register &mdash; <select id="attendanceClassSelect" onchange="app.switchClass(this.value)" style="font-size: 1.1rem; font-weight: 700; color: var(--primary); border: 1px solid var(--primary); border-radius: 6px; padding: 4px 10px; background: #f0fdf4; cursor: pointer;"></select>
-        </h2>
-        <button class="btn btn-secondary" onclick="app.renderAttendanceTable()" style="font-size: 0.85rem;" title="Refresh Attendance Records">🔄 Refresh</button>
+      <div style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border-color); gap: 12px;">
+        <!-- Left: Blue Class Tab -->
+        <div style="display: flex; justify-content: flex-start;">
+          <div style="display: inline-flex; align-items: stretch; border-radius: 8px; overflow: hidden; border: 1.5px solid #2563eb; box-shadow: 0 1px 3px rgba(37, 99, 235, 0.15); background: white;">
+            <span style="background: #2563eb; color: #ffffff; font-weight: 800; font-size: 0.82rem; padding: 6px 12px; display: flex; align-items: center; text-transform: uppercase; letter-spacing: 0.5px; user-select: none;">Class:</span>
+            <select id="attendanceClassSelect" onchange="app.switchClass(this.value)" style="border: none; background: #ffffff; font-size: 0.95rem; font-weight: 700; color: #1e293b; padding: 6px 12px; outline: none; cursor: pointer; max-width: 220px; text-overflow: ellipsis; white-space: nowrap;"></select>
+          </div>
+        </div>
+
+        <!-- Center: Title -->
+        <div style="display: flex; justify-content: center;">
+          <h2 style="font-size: 1.35rem; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap;">
+            <span>📋</span> Class Attendance
+          </h2>
+        </div>
+
+        <!-- Right: Spacer -->
+        <div style="display: flex; justify-content: flex-end;">
+        </div>
       </div>
 
       <div class="attendance-table-container">
@@ -225,14 +254,30 @@
   <!-- Grades Register View -->
   <div id="gradesAppBody" class="app-body" style="display: none; padding: 24px; overflow-y: auto; background-color: #f1f5f9; justify-content: center; align-items: flex-start;">
     <div class="panel" style="max-width: 950px; width: 100%; padding: 24px; box-shadow: var(--shadow-lg); background: white; border-radius: 12px; margin-top: 10px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
-        <h2 style="font-size: 1.35rem; color: var(--text-dark); margin: 0; display: flex; align-items: center; gap: 10px;">
-          <span>🎼</span> Grades Register &mdash; <select id="gradesClassSelect" onchange="app.switchClass(this.value)" style="font-size: 1.1rem; font-weight: 700; color: var(--primary); border: 1px solid var(--primary); border-radius: 6px; padding: 4px 10px; background: #f0fdf4; cursor: pointer;"></select>
-        </h2>
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <button id="btnAddGradeColumn" class="btn btn-primary" onclick="app.openAddGradeColumnModal()" style="font-size: 0.85rem; font-weight: 700;" title="Add New Assessment Column">+ Add Assessment</button>
-          <button class="btn btn-secondary" onclick="app.renderGradesTable()" style="font-size: 0.85rem;" title="Refresh Grade Records">🔄 Refresh</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+          
+          <!-- Subject Tab -->
+          <div style="display: inline-flex; align-items: stretch; border-radius: 8px; overflow: hidden; border: 1.5px solid #dc2626; box-shadow: 0 1px 3px rgba(220, 38, 38, 0.15); background: white;">
+            <span style="background: #dc2626; color: #ffffff; font-weight: 800; font-size: 0.82rem; padding: 6px 12px; display: flex; align-items: center; text-transform: uppercase; letter-spacing: 0.5px; user-select: none;">Subject:</span>
+            <select id="gradesSubjectSelect" onchange="app.switchGradeSubject(this.value)" style="border: none; background: #ffffff; font-size: 0.95rem; font-weight: 700; color: #1e293b; padding: 6px 12px; outline: none; cursor: pointer; max-width: 200px; text-overflow: ellipsis; white-space: nowrap;"></select>
+          </div>
+
+          <!-- Class Tab -->
+          <div style="display: inline-flex; align-items: stretch; border-radius: 8px; overflow: hidden; border: 1.5px solid #2563eb; box-shadow: 0 1px 3px rgba(37, 99, 235, 0.15); background: white;">
+            <span style="background: #2563eb; color: #ffffff; font-weight: 800; font-size: 0.82rem; padding: 6px 12px; display: flex; align-items: center; text-transform: uppercase; letter-spacing: 0.5px; user-select: none;">Class:</span>
+            <select id="gradesClassSelect" onchange="app.switchClass(this.value)" style="border: none; background: #ffffff; font-size: 0.95rem; font-weight: 700; color: #1e293b; padding: 6px 12px; outline: none; cursor: pointer; max-width: 220px; text-overflow: ellipsis; white-space: nowrap;"></select>
+          </div>
+
         </div>
+
+        <!-- Right: Attendance Indicator Toggle Button -->
+        <button type="button" id="btnToggleGradesAttendance" class="btn-grades-attendance-toggle active" onclick="app.toggleGradesAttendanceIndicators()" title="Click to show/hide attendance indicators on the table">
+          <span class="att-dot-green"></span>
+          <span class="att-dot-divider">/</span>
+          <span class="att-dot-red"></span>
+          <span>Attendance</span>
+        </button>
       </div>
 
       <div class="attendance-table-container">
@@ -298,32 +343,30 @@
   </div>
 
   <div id="settingsModal" class="modal-overlay">
-    <div class="modal" style="max-width: 420px; padding: 22px;">
-      <h2 style="margin-bottom: 14px;">Layout Settings</h2>
-      <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px;">
+    <div class="modal" style="max-width: 440px; width: 95%; max-height: 88vh; display: flex; flex-direction: column; padding: 22px;">
+      <h2 style="margin-bottom: 12px; flex-shrink: 0;">Layout Settings</h2>
+      <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; overflow-y: auto; padding-right: 6px; flex: 1;">
         <label style="margin-bottom: 2px;">
           <span style="display:block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px;">Change App's Name</span>
           <input type="text" id="settingsAppName" placeholder="ClassPlanner" style="width: 100%; padding: 6px 10px; font-weight: 700; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
         </label>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0;">
-          <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-dark);">Display Initials</span>
-          <button id="btnToggleShowFaces" type="button" class="btn" style="font-weight: 700; padding: 5px 16px; background: #38bdf8; color: white; border: 1.5px solid #0284c7; min-width: 70px; cursor: pointer; border-radius: 6px;" onclick="app.toggleShowFacesSetting()">ON</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0; gap: 8px;">
+          <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-dark); flex-shrink: 0;">Display</span>
+          <div style="display: flex; gap: 6px;">
+            <button id="btnToggleDisplayFirstName" type="button" class="btn" style="font-weight: 700; padding: 5px 9px; font-size: 0.78rem; cursor: pointer; border-radius: 6px; transition: all 0.15s ease;" onclick="app.toggleDisplaySetting('firstName')">First Name</button>
+            <button id="btnToggleDisplayLastName" type="button" class="btn" style="font-weight: 700; padding: 5px 9px; font-size: 0.78rem; cursor: pointer; border-radius: 6px; transition: all 0.15s ease;" onclick="app.toggleDisplaySetting('lastName')">Last Name</button>
+            <button id="btnToggleDisplayInitials" type="button" class="btn" style="font-weight: 700; padding: 5px 9px; font-size: 0.78rem; cursor: pointer; border-radius: 6px; transition: all 0.15s ease;" onclick="app.toggleDisplaySetting('initials')">Initials</button>
+          </div>
         </div>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0;">
-          <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-dark);">Gradebook Attendance</span>
-          <button id="btnToggleShowGradesRatio" type="button" class="btn" style="font-weight: 700; padding: 5px 16px; background: #38bdf8; color: white; border: 1.5px solid #0284c7; min-width: 70px; cursor: pointer; border-radius: 6px;" onclick="app.toggleShowGradesRatioSetting()">ON</button>
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0;">
-          <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-dark);">Student Removal Warning</span>
-          <button id="btnToggleRemoveWarning" type="button" class="btn" style="font-weight: 700; padding: 5px 16px; background: #38bdf8; color: white; border: 1.5px solid #0284c7; min-width: 70px; cursor: pointer; border-radius: 6px;" onclick="app.toggleRemoveWarningSetting()">ON</button>
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 2px 0;">
-          <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-dark);">Balance and Shuffle Class</span>
-          <button id="btnBalanceToggle" type="button" class="btn btn-secondary" style="font-weight: bold; padding: 5px 16px; min-width: 70px;" onclick="app.toggleBalanceSetting()">YES</button>
+        <div style="display: flex; flex-direction: column; gap: 6px; padding: 4px 0;">
+          <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-dark);">Arrange Seating</span>
+          <div style="display: flex; gap: 6px;">
+            <button id="btnArrangeFirstName" type="button" class="btn btn-secondary" style="flex: 1; font-weight: bold; padding: 6px 4px; font-size: 0.8rem;" onclick="app.setArrangeSeatingMode('first')">First Name</button>
+            <button id="btnArrangeLastName" type="button" class="btn btn-secondary" style="flex: 1; font-weight: bold; padding: 6px 4px; font-size: 0.8rem;" onclick="app.setArrangeSeatingMode('last')">Last Name</button>
+            <button id="btnArrangeRandom" type="button" class="btn btn-secondary" style="flex: 1; font-weight: bold; padding: 6px 4px; font-size: 0.8rem;" onclick="app.setArrangeSeatingMode('random')">Random</button>
+          </div>
         </div>
 
         <div style="border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 4px;">
@@ -336,7 +379,7 @@
         </div>
       </div>
 
-      <div class="modal-actions" style="justify-content: space-between; align-items: center;">
+      <div class="modal-actions" style="justify-content: space-between; align-items: center; flex-shrink: 0; padding-top: 12px; border-top: 1px solid #e2e8f0; margin-top: 0;">
         <div>
           <button class="btn btn-primary" onclick="app.saveSettings()">Confirm</button>
           <button class="btn btn-secondary" onclick="app.closeModal('settingsModal')">Cancel</button>
@@ -346,11 +389,30 @@
     </div>
   </div>
 
+  <div id="editSubjectsModal" class="modal-overlay">
+    <div class="modal" style="max-width: 560px; width: 95%;">
+      <h2 style="margin-bottom: 6px;">Manage Subjects & Assessment Categories</h2>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 14px;">Add subjects and customize assessment categories (sublevels) for each subject.</p>
+      
+      <div style="margin-bottom: 16px; display: flex; gap: 8px;">
+        <input type="text" id="modalAddSubjectName" placeholder="New subject name (e.g. Art, PE, Science)..." style="flex: 1;" onkeydown="if(event.key === 'Enter') app.addSubjectFromModal()">
+        <button class="btn btn-primary" onclick="app.addSubjectFromModal()">+ Add Subject</button>
+      </div>
+
+      <div id="modalSubjectsList" style="max-height: 360px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; background: #fafafa; display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;"></div>
+
+      <div class="modal-actions" style="justify-content: flex-start;">
+        <button class="btn btn-primary" onclick="app.saveEditedSubjects()">Confirm</button>
+        <button class="btn btn-secondary" onclick="app.closeModal('editSubjectsModal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="editClassesModal" class="modal-overlay">
     <div class="modal" style="max-width: 520px;">
       <h2>Manage & Edit Classes</h2>
       <div style="margin-bottom: 16px; display: flex; gap: 8px;">
-        <input type="text" id="modalAddClassName" placeholder="New class name..." style="flex: 1;">
+        <input type="text" id="modalAddClassName" placeholder="New class name..." style="flex: 1;" onkeydown="if(event.key === 'Enter') app.addClassFromModal()">
         <button class="btn btn-primary" onclick="app.addClassFromModal()">+ Add Class</button>
       </div>
 
@@ -364,13 +426,13 @@
   </div>
 
   <div id="bulkModal" class="modal-overlay">
-    <div class="modal">
-      <h2>Paste Student Names</h2>
-      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">Paste names separated by new lines or commas.</p>
-      <textarea id="bulkStudentsInput" rows="8" style="width: 100%; resize: vertical;" placeholder="John Doe&#10;Jane Smith&#10;Alex Johnson"></textarea>
-      <div class="modal-actions">
+    <div class="modal" style="max-width: 440px;">
+      <h2 style="margin-bottom: 6px;">Add List of Students</h2>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">Enter or paste student names (one per line, or separated by commas).</p>
+      <textarea id="bulkStudentsInput" rows="9" style="width: 100%; box-sizing: border-box; padding: 10px; font-family: inherit; font-size: 0.9rem; border: 1.5px solid var(--border-color); border-radius: 6px; resize: vertical; margin-bottom: 14px;" placeholder="John Doe&#10;Jane Smith&#10;Alex Johnson"></textarea>
+      <div class="modal-actions" style="justify-content: flex-end; gap: 8px;">
         <button class="btn btn-secondary" onclick="app.closeModal('bulkModal')">Cancel</button>
-        <button class="btn btn-primary" onclick="app.addBulkStudents()">Add Students</button>
+        <button class="btn btn-primary" onclick="app.addBulkStudents()">Add to Class List</button>
       </div>
     </div>
   </div>
@@ -430,57 +492,135 @@
 
       <div class="modal-actions" style="margin-top: 16px;">
         <button class="btn btn-secondary" onclick="app.closeModal('attendanceDateModal')">Cancel</button>
-        <button class="btn btn-primary" style="font-weight: bold;" onclick="app.confirmAttendanceDate()">Confirm</button>
+        <button class="btn btn-primary" style="font-weight: bold;" onclick="app.startAttendanceSession()">Start</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Attendance Date Modal (Attendance Register Table) -->
+  <div id="addAttendanceDateModal" class="modal-overlay">
+    <div class="modal" style="max-width: 380px; padding: 20px;">
+      <h2 style="margin-bottom: 12px; font-size: 1.15rem; color: var(--text-dark); display: flex; align-items: center; gap: 8px;">
+        <span>📅</span> Add Attendance Date
+      </h2>
+      
+      <div class="calendar-picker">
+        <div class="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <button class="btn btn-outline" style="padding: 2px 8px; font-weight: bold;" onclick="app.changeAddAttCalendarMonth(-1)">&lt;</button>
+          <span id="addAttCalendarMonthYear" style="font-weight: bold; font-size: 0.95rem; color: #0f172a;">July 2026</span>
+          <button class="btn btn-outline" style="padding: 2px 8px; font-weight: bold;" onclick="app.changeAddAttCalendarMonth(1)">&gt;</button>
+        </div>
+        
+        <div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.75rem; font-weight: bold; color: #64748b; margin-bottom: 6px;">
+          <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+        </div>
+        
+        <div id="addAttCalendarDaysGrid" class="calendar-days-grid" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; font-size: 0.85rem; margin-bottom: 14px;">
+        </div>
+      </div>
+
+      <div style="border-top: 1px solid #e2e8f0; margin-top: 10px; padding-top: 12px;">
+        <label style="display: block; font-size: 0.8rem; font-weight: 600; color: #64748b; margin-bottom: 4px;">Date Selection:</label>
+        <input type="date" id="addAttDateInput" style="width: 100%; box-sizing: border-box;" onchange="app.onAddAttDateInputChange(this.value)">
+      </div>
+
+      <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="app.closeModal('addAttendanceDateModal')">Cancel</button>
+        <button class="btn btn-primary" style="font-weight: bold; background: #2563eb; border-color: #1d4ed8;" onclick="app.startTableAttendanceSession()">Start</button>
       </div>
     </div>
   </div>
 
   <div id="addGradeColumnModal" class="modal-overlay">
-    <div class="modal" style="max-width: 400px;">
-      <h2>Add Assessment Column</h2>
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--text-dark);">Assessment Type:</label>
-        <select id="gradeTitleSelect" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 700; font-size: 0.95rem; background: white;">
-          <option value="Singing">🍊 Singing (Light Orange)</option>
-          <option value="Instruments">🎷 Instruments (Yellow)</option>
-          <option value="Movement">💃 Movement (Green)</option>
-          <option value="Culture">🌍 Culture (Blue)</option>
-          <option value="Theory">🎼 Theory (Pink)</option>
-          <option value="Effort">⭐ Effort (Light Red)</option>
-        </select>
+    <div class="modal" style="max-width: 480px;">
+      <h2>Add Grade</h2>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+        <div>
+          <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--text-dark);">Grading Style:</label>
+          <select id="addGradeGradingStyleSelect" style="width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 700; font-size: 0.88rem; background: white;" onchange="app.onModalGradingStyleChange('addGrade')">
+            <option value="informal">Informal (+, −, ✕)</option>
+            <option value="standards">Standards-Based</option>
+            <option value="points">Point-Based</option>
+          </select>
+        </div>
+        <div>
+          <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--text-dark);">Assessment Type:</label>
+          <select id="gradeTitleSelect" style="width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 700; font-size: 0.88rem; background: white;">
+            <option value="Singing">🍊 Singing (Light Orange)</option>
+            <option value="Instruments">🎷 Instruments (Yellow)</option>
+            <option value="Movement">💃 Movement (Green)</option>
+            <option value="Culture">🌍 Culture (Blue)</option>
+            <option value="Theory">🎼 Theory (Pink)</option>
+            <option value="Effort">⭐ Effort (Light Red)</option>
+          </select>
+        </div>
       </div>
-      <div style="margin-bottom: 20px;">
-        <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--text-dark);">Assessment Date:</label>
-        <input type="date" id="gradeDateInput" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 600; background: white;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px;">
+        <label style="font-weight: 600; font-size: 0.85rem; color: var(--text-dark); white-space: nowrap; margin: 0;">Assessment Date:</label>
+        <input type="date" id="gradeDateInput" style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 600; background: white;">
       </div>
-      <div style="display: flex; justify-content: flex-end; gap: 10px;">
-        <button class="btn btn-secondary" onclick="app.closeAddGradeColumnModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="app.saveAddGradeColumn()">Add Column</button>
+      <div id="addGradeMaxPointsContainer" style="margin-bottom: 20px; display: none;">
+        <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--text-dark);">Maximum Points:</label>
+        <input type="number" id="gradeMaxPointsInput" min="1" value="10" placeholder="e.g. 10" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 700; background: white;" oninput="app.onModalMaxPointsInput('addGrade')">
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 20px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button type="button" id="addGradeAutoFillToggle" class="auto-fill-toggle-btn" onclick="app.toggleModalAutoFill('addGrade')">
+            Auto Fill
+          </button>
+          <div id="addGradeAutoFillControls" class="auto-fill-controls-container"></div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button class="btn btn-secondary" onclick="app.closeAddGradeColumnModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="app.saveAddGradeColumn()">Add Column</button>
+        </div>
       </div>
     </div>
   </div>
 
   <div id="startGradeSessionModal" class="modal-overlay">
-    <div class="modal" style="max-width: 400px;">
-      <h2>Add Assessment</h2>
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--text-dark);">Assessment Type:</label>
-        <select id="gradeSessionTitleSelect" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 700; font-size: 0.95rem; background: white;">
-          <option value="Singing">🍊 Singing (Light Orange)</option>
-          <option value="Instruments">🎷 Instruments (Yellow)</option>
-          <option value="Movement">💃 Movement (Green)</option>
-          <option value="Culture">🌍 Culture (Blue)</option>
-          <option value="Theory">🎼 Theory (Pink)</option>
-          <option value="Effort">⭐ Effort (Light Red)</option>
-        </select>
+    <div class="modal" style="max-width: 480px;">
+      <h2>Add Grade</h2>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+        <div>
+          <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--text-dark);">Grading Style:</label>
+          <select id="startGradeSessionGradingStyleSelect" style="width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 700; font-size: 0.88rem; background: white;" onchange="app.onModalGradingStyleChange('startSession')">
+            <option value="informal">Informal (+, −, ✕)</option>
+            <option value="standards">Standards-Based</option>
+            <option value="points">Point-Based</option>
+          </select>
+        </div>
+        <div>
+          <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--text-dark);">Assessment Type:</label>
+          <select id="gradeSessionTitleSelect" style="width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 700; font-size: 0.88rem; background: white;">
+            <option value="Singing">🍊 Singing (Light Orange)</option>
+            <option value="Instruments">🎷 Instruments (Yellow)</option>
+            <option value="Movement">💃 Movement (Green)</option>
+            <option value="Culture">🌍 Culture (Blue)</option>
+            <option value="Theory">🎼 Theory (Pink)</option>
+            <option value="Effort">⭐ Effort (Light Red)</option>
+          </select>
+        </div>
       </div>
-      <div style="margin-bottom: 20px;">
-        <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--text-dark);">Assessment Date:</label>
-        <input type="date" id="gradeSessionDateInput" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 600; background: white;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px;">
+        <label style="font-weight: 600; font-size: 0.85rem; color: var(--text-dark); white-space: nowrap; margin: 0;">Assessment Date:</label>
+        <input type="date" id="gradeSessionDateInput" style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 600; background: white;">
       </div>
-      <div style="display: flex; justify-content: flex-end; gap: 10px;">
-        <button class="btn btn-secondary" onclick="app.closeModal('startGradeSessionModal')">Cancel</button>
-        <button class="btn btn-primary" style="font-weight: bold;" onclick="app.confirmStartGradeSession()">Start</button>
+      <div id="startGradeSessionMaxPointsContainer" style="margin-bottom: 20px; display: none;">
+        <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--text-dark);">Maximum Points:</label>
+        <input type="number" id="gradeSessionMaxPointsInput" min="1" value="10" placeholder="e.g. 10" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); font-weight: 700; background: white;" oninput="app.onModalMaxPointsInput('startSession')">
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 20px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button type="button" id="startGradeSessionAutoFillToggle" class="auto-fill-toggle-btn" onclick="app.toggleModalAutoFill('startSession')">
+            Auto Fill
+          </button>
+          <div id="startGradeSessionAutoFillControls" class="auto-fill-controls-container"></div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button class="btn btn-secondary" onclick="app.closeModal('startGradeSessionModal')">Cancel</button>
+          <button class="btn btn-primary" style="font-weight: bold;" onclick="app.confirmStartGradeSession()">Start</button>
+        </div>
       </div>
     </div>
   </div>
@@ -502,6 +642,24 @@
       <div style="display: flex; justify-content: flex-end; gap: 10px;">
         <button class="btn btn-secondary" onclick="app.closeModal('removeStudentConfirmModal')">Cancel</button>
         <button class="btn btn-primary" style="background: var(--danger); border-color: var(--danger); color: white; font-weight: bold;" onclick="app.executeRemoveStudentFromClass()">Remove</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pointsEntryModal" class="modal-overlay">
+    <div class="modal" style="max-width: 360px; text-align: center; padding: 24px;">
+      <h2 id="pointsEntryStudentName" style="margin-bottom: 4px; font-size: 1.3rem; color: var(--text-dark);">Student Name</h2>
+      <div id="pointsEntrySubTitle" style="font-size: 0.88rem; color: #64748b; font-weight: 600; margin-bottom: 20px;">Assessment</div>
+      
+      <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 24px;">
+        <input type="number" id="pointsEntryInput" style="width: 100px; height: 52px; font-size: 1.8rem; font-weight: 800; text-align: center; border: 2.5px solid var(--primary); border-radius: 10px; background: #ffffff; color: #0f172a; outline: none; box-shadow: 0 2px 8px rgba(0,0,0,0.08);" onkeydown="if(event.key === 'Enter') { event.preventDefault(); app.confirmPointsEntry(); } if(event.key === 'Escape') { event.preventDefault(); app.closePointsEntryModal(); }">
+        <span id="pointsEntryMaxDisplay" style="font-size: 1.6rem; font-weight: 800; color: #64748b;">/ 10</span>
+      </div>
+
+      <div style="display: flex; justify-content: center; gap: 10px;">
+        <button type="button" class="btn btn-secondary" style="min-width: 80px;" onclick="app.closePointsEntryModal()">Cancel</button>
+        <button type="button" class="btn" style="min-width: 85px; background: #dc2626; border: 1.5px solid #b91c1c; color: white; font-weight: bold;" onclick="app.removePointsEntryScore()">Remove</button>
+        <button type="button" class="btn btn-primary" style="min-width: 90px; font-weight: bold;" onclick="app.confirmPointsEntry()">Confirm</button>
       </div>
     </div>
   </div>
