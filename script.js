@@ -14,6 +14,9 @@ class SeatingChartApp {
         this.calendarViewMonth = new Date().getMonth();
         this.calendarViewYear = new Date().getFullYear();
         this.activeTakeAttendanceMode = null;
+        this.isAttendanceSessionActive = false;
+        this.activeAttendanceDate = null;
+        this.activeAttendanceStatuses = {};
         this.isGradeScoringActive = false;
         this.activeGradeSession = { title: 'Singing', date: '', scores: {} };
         this.isDraftScoringActive = false;
@@ -22,8 +25,20 @@ class SeatingChartApp {
         this.suppressRemoveStudentWarning = localStorage.getItem('seatingApp_suppressRemoveStudentWarning') === 'true';
         this.studentPendingRemoval = null;
         this.appName = localStorage.getItem('seatingApp_appName') || 'ClassPlanner';
+        this.gradingStyle = localStorage.getItem('seatingApp_gradingStyle') || 'informal';
+        this.settingShowFirstName = true;
+        this.settingShowLastName = false;
         this.settingShowFaces = true;
         this.settingShowGradesRatio = true;
+
+        this.subjects = [
+          {
+            id: 'subj_music',
+            name: 'Music',
+            categories: ['Singing', 'Instruments', 'Movement', 'Culture', 'Theory', 'Effort']
+          }
+        ];
+        this.tempSubjects = [];
 
         this.init();
       }
@@ -32,7 +47,7 @@ class SeatingChartApp {
         const titleText = (this.appName && this.appName.trim()) ? this.appName.trim() : 'ClassPlanner';
         const brandEl = document.getElementById('appTitleBrandText');
         if (brandEl) brandEl.textContent = titleText;
-        document.title = `${titleText} 1.0`;
+        document.title = `${titleText} 1.2`;
       }
 
       init() {
@@ -57,8 +72,25 @@ class SeatingChartApp {
         window.addEventListener('click', (e) => {
           const layoutBar = document.getElementById('layoutBar');
           const layoutBtn = document.getElementById('headerLayoutBtn');
+          const fsLayoutBtn = document.getElementById('fullscreenLayoutBtn');
+          const headerEditBtn = document.getElementById('headerEditBtn');
+          const fsEditBtn = document.getElementById('fullscreenEditBtn');
+          const rosterEditBtn = document.getElementById('rosterEditBtn');
+          const rowsSub = document.getElementById('rowsSubheader');
+          const linesSub = document.getElementById('linesSubheader');
+
           if (layoutBar && layoutBar.classList.contains('open')) {
-            if (e.target && !layoutBar.contains(e.target) && !layoutBtn.contains(e.target)) {
+            if (
+              e.target &&
+              !layoutBar.contains(e.target) &&
+              !(layoutBtn && layoutBtn.contains(e.target)) &&
+              !(fsLayoutBtn && fsLayoutBtn.contains(e.target)) &&
+              !(headerEditBtn && headerEditBtn.contains(e.target)) &&
+              !(fsEditBtn && fsEditBtn.contains(e.target)) &&
+              !(rosterEditBtn && rosterEditBtn.contains(e.target)) &&
+              !(rowsSub && rowsSub.contains(e.target)) &&
+              !(linesSub && linesSub.contains(e.target))
+            ) {
               this.closeLayoutMenu();
             }
           }
@@ -72,6 +104,7 @@ class SeatingChartApp {
         if (e) e.stopPropagation();
         const layoutBar = document.getElementById('layoutBar');
         const layoutBtn = document.getElementById('headerLayoutBtn');
+        const fsLayoutBtn = document.getElementById('fullscreenLayoutBtn');
         if (!layoutBar) return;
 
         const isOpen = layoutBar.classList.contains('open');
@@ -79,10 +112,12 @@ class SeatingChartApp {
           this.closeLayoutMenu();
         } else {
           layoutBar.classList.add('open');
-          if (layoutBtn) {
-            layoutBtn.classList.remove('btn-outline');
-            layoutBtn.classList.add('btn-primary');
-          }
+          [layoutBtn, fsLayoutBtn].forEach(btn => {
+            if (btn) {
+              btn.classList.remove('btn-outline');
+              btn.classList.add('btn-primary');
+            }
+          });
         }
         this.updateSubheaders();
       }
@@ -90,11 +125,14 @@ class SeatingChartApp {
       closeLayoutMenu() {
         const layoutBar = document.getElementById('layoutBar');
         const layoutBtn = document.getElementById('headerLayoutBtn');
+        const fsLayoutBtn = document.getElementById('fullscreenLayoutBtn');
         if (layoutBar) layoutBar.classList.remove('open');
-        if (layoutBtn) {
-          layoutBtn.classList.remove('btn-primary');
-          layoutBtn.classList.add('btn-outline');
-        }
+        [layoutBtn, fsLayoutBtn].forEach(btn => {
+          if (btn) {
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-outline');
+          }
+        });
         this.updateSubheaders();
       }
 
@@ -110,45 +148,45 @@ class SeatingChartApp {
           document.body.classList.remove('fullscreen-mode');
           if (btnResize) btnResize.classList.remove('btn-resize-active');
         }
+
+        const fullscreenLayoutBtn = document.getElementById('fullscreenLayoutBtn');
+        if (fullscreenLayoutBtn) {
+          fullscreenLayoutBtn.style.display = (this.currentViewMode === 'chart' || !this.currentViewMode) ? '' : 'none';
+        }
+
+        this.updateAddGradeColumnButtonsUI();
       }
 
       createSampleData() {
         const sampleStudents = [
-          'George Washington', 'John Adams', 'Thomas Jefferson', 'James Madison', 'James Monroe',
-          'John Quincy Adams', 'Andrew Jackson', 'Martin Van Buren', 'William Henry Harrison', 'John Tyler',
-          'James Polk', 'Zachary Taylor', 'Millard Fillmore', 'Franklin Pierce', 'James Buchanan',
-          'Abraham Lincoln', 'Andrew Johnson', 'Ulysses Grant', 'Rutherford Hayes', 'James Garfield',
-          'Chester Arthur', 'Grover Cleveland', 'Benjamin Harrison', 'Grover Cleveland', 'William McKinley',
-          'Theodore Roosevelt', 'William Howard Taft', 'Woodrow Wilson', 'Warren Harding', 'Calvin Coolidge',
-          'Herbert Hoover', 'Franklin Roosevelt', 'Harry Truman', 'Dwight Eisenhower', 'John Kennedy',
-          'Lyndon Johnson', 'Richard Nixon', 'Gerald Ford', 'Jimmy Carter', 'Ronald Reagan',
-          'George Bush', 'Bill Clinton', 'George Bush', 'Barack Obama', 'Donald Trump',
-          'Joe Biden', 'Donald Trump'
+          'Scooby Doo', 'Shaggy Rogers', 'Fred Jones', 'Velma Dinkley', 'Daphne Blake'
         ];
 
+        const sortedByLast = this.sortStudentsByName(sampleStudents, 'last');
+
         const numRows = 4;
-        const rows = Array.from({ length: numRows }, () => []);
-        sampleStudents.forEach((st, i) => {
-          rows[i % numRows].push(st);
-        });
+        const rows = this.distributeStudentsEquallyInOrder(sampleStudents, numRows, 'last');
 
         const sampleClass = {
           id: 'class-' + Date.now(),
-          name: 'US Presidents',
+          name: 'Mystery Class',
+          subjectId: 'subj_music',
           layout: 'rows',
           rowsCount: 4,
           rowAlignment: 'center',
           rowsRowAlign: {},
+          showFirstName: true,
+          showLastName: false,
           showFaces: true,
           classList: [...sampleStudents],
           rows: rows,
-          circle: [...sampleStudents],
+          circle: [...sortedByLast],
           layoutsData: {
-            half: this.autoBalanceGroups([...sampleStudents], 2),
-            third: this.autoBalanceGroups([...sampleStudents], 3),
-            fourth: this.autoBalanceGroups([...sampleStudents], 4),
-            fifth: this.autoBalanceGroups([...sampleStudents], 5),
-            sixth: this.autoBalanceGroups([...sampleStudents], 6)
+            half: this.autoBalanceGroups([...sampleStudents], 2, 'last'),
+            third: this.autoBalanceGroups([...sampleStudents], 3, 'last'),
+            fourth: this.autoBalanceGroups([...sampleStudents], 4, 'last'),
+            fifth: this.autoBalanceGroups([...sampleStudents], 5, 'last'),
+            sixth: this.autoBalanceGroups([...sampleStudents], 6, 'last')
           }
         };
         this.classes.push(sampleClass);
@@ -156,55 +194,150 @@ class SeatingChartApp {
         this.saveData();
       }
 
-      autoBalanceGroups(students, numGroups) {
-        const groups = Array.from({ length: numGroups }, () => []);
-        students.forEach((name, i) => {
-          groups[i % numGroups].push(name);
-        });
-        return groups;
+      getStudentLastName(fullName) {
+        if (!fullName || typeof fullName !== 'string') return '';
+        const parts = fullName.trim().split(/\s+/);
+        return parts.length > 1 ? parts[parts.length - 1] : parts[0] || '';
+      }
+
+      sortStudentsByName(students, sortMode = 'last') {
+        const arr = [...students];
+        if (sortMode === 'first') {
+          arr.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+        } else if (sortMode === 'last') {
+          arr.sort((a, b) => {
+            const lastA = this.getStudentLastName(a);
+            const lastB = this.getStudentLastName(b);
+            const comp = lastA.localeCompare(lastB, undefined, { sensitivity: 'base' });
+            return comp !== 0 ? comp : a.localeCompare(b, undefined, { sensitivity: 'base' });
+          });
+        } else if (sortMode === 'random') {
+          return this.shuffleArray(arr);
+        }
+        return arr;
+      }
+
+      distributeStudentsEquallyInOrder(students, numBuckets, sortMode = 'last') {
+        const sorted = this.sortStudentsByName(students, sortMode);
+        const buckets = Array.from({ length: numBuckets }, () => []);
+        if (sorted.length === 0 || numBuckets <= 0) return buckets;
+
+        if (sortMode === 'random') {
+          sorted.forEach((name, i) => {
+            buckets[i % numBuckets].push(name);
+          });
+          return buckets;
+        }
+
+        // Sequential block distribution:
+        // First chunk of students goes to Bucket 0, next chunk to Bucket 1, etc.
+        const baseSize = Math.floor(sorted.length / numBuckets);
+        const remainder = sorted.length % numBuckets;
+        let cursor = 0;
+
+        for (let b = 0; b < numBuckets; b++) {
+          const countForThisBucket = baseSize + (b < remainder ? 1 : 0);
+          for (let c = 0; c < countForThisBucket; c++) {
+            if (cursor < sorted.length) {
+              buckets[b].push(sorted[cursor]);
+              cursor++;
+            }
+          }
+        }
+
+        return buckets;
+      }
+
+      autoBalanceGroups(students, numGroups, sortMode = 'last') {
+        return this.distributeStudentsEquallyInOrder(students, numGroups, sortMode);
       }
 
       saveData() {
-        localStorage.setItem('seatingPlanner_data_v5', JSON.stringify(this.classes));
-        localStorage.setItem('seatingPlanner_currentId_v5', this.currentClassId);
+        localStorage.setItem('classPlanner_data_v6', JSON.stringify(this.classes));
+        localStorage.setItem('classPlanner_currentId_v6', this.currentClassId);
+        localStorage.setItem('classPlanner_appName', this.appName || 'ClassPlanner');
+        localStorage.setItem('classPlanner_subjects_v1', JSON.stringify(this.subjects));
       }
 
       loadData() {
-        const savedClasses = localStorage.getItem('seatingPlanner_data_v5');
-        const savedId = localStorage.getItem('seatingPlanner_currentId_v5');
+        const savedClasses = localStorage.getItem('classPlanner_data_v6');
+        const savedId = localStorage.getItem('classPlanner_currentId_v6');
+        const savedAppName = localStorage.getItem('classPlanner_appName');
+        const savedSubjects = localStorage.getItem('classPlanner_subjects_v1');
+
+        if (savedAppName) {
+          this.appName = savedAppName;
+        }
+
+        if (savedSubjects) {
+          try {
+            const parsedSubj = JSON.parse(savedSubjects);
+            if (Array.isArray(parsedSubj) && parsedSubj.length > 0) {
+              this.subjects = parsedSubj;
+            }
+          } catch (e) {
+            console.error('Error loading saved subjects:', e);
+          }
+        }
+
+        if (!Array.isArray(this.subjects) || this.subjects.length === 0) {
+          this.subjects = [
+            {
+              id: 'subj_music',
+              name: 'Music',
+              categories: ['Singing', 'Instruments', 'Movement', 'Culture', 'Theory', 'Effort']
+            }
+          ];
+        }
 
         if (savedClasses) {
           try {
-            this.classes = JSON.parse(savedClasses);
-            if (!Array.isArray(this.classes)) this.classes = [];
-            this.classes.forEach(c => {
-              if (!c) return;
-              if (!Array.isArray(c.rows)) c.rows = [[]];
-              c.rows = c.rows.map(r => Array.isArray(r) ? r.filter(s => typeof s === 'string' && s.trim()) : []);
-              if (!c.rowsCount) c.rowsCount = 4;
-              if (!c.linesCount) c.linesCount = 4;
-              if (!c.rowAlignment) c.rowAlignment = 'center';
-              if (!c.rowsRowAlign) c.rowsRowAlign = {};
-              if (typeof c.showFaces !== 'boolean') c.showFaces = true;
-              if (!Array.isArray(c.unplacedStudents)) c.unplacedStudents = [];
+            const parsed = JSON.parse(savedClasses);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              this.classes = parsed;
+              const defaultSubjId = this.subjects[0] ? this.subjects[0].id : 'subj_music';
+              this.classes.forEach(c => {
+                if (!c) return;
+                if (!c.id) c.id = 'class-' + Date.now();
+                if (!c.name) c.name = 'Class';
+                if (!c.subjectId) c.subjectId = defaultSubjId;
+                if (!c.subjectGrades || typeof c.subjectGrades !== 'object') c.subjectGrades = {};
+                if (Array.isArray(c.gradeColumns) && c.gradeColumns.length > 0 && !c.subjectGrades['subj_music']) {
+                  c.subjectGrades['subj_music'] = [...c.gradeColumns];
+                }
+                if (!c.layout) c.layout = 'rows';
+                if (!Array.isArray(c.rows)) c.rows = [[]];
+                c.rows = c.rows.map(r => Array.isArray(r) ? r.filter(s => typeof s === 'string' && s.trim()) : []);
+                if (!c.rowsCount) c.rowsCount = 4;
+                if (!c.linesCount) c.linesCount = 4;
+                if (!c.rowAlignment) c.rowAlignment = 'center';
+                if (!c.rowsRowAlign) c.rowsRowAlign = {};
+                if (typeof c.showFirstName !== 'boolean') c.showFirstName = true;
+                if (typeof c.showLastName !== 'boolean') c.showLastName = false;
+                if (typeof c.showFaces !== 'boolean') c.showFaces = true;
+                if (!Array.isArray(c.unplacedStudents)) c.unplacedStudents = [];
 
-              const all = this.getAllClassStudents(c);
-              if (!c.classList || !Array.isArray(c.classList)) c.classList = [...all];
-              else c.classList = c.classList.filter(s => typeof s === 'string' && s.trim());
+                const all = this.getAllClassStudents(c);
+                if (!c.classList || !Array.isArray(c.classList)) c.classList = [...all];
+                else c.classList = c.classList.filter(s => typeof s === 'string' && s.trim());
 
-              if (!c.circle || !Array.isArray(c.circle)) c.circle = [...all];
-              else c.circle = c.circle.filter(s => typeof s === 'string' && s.trim());
+                if (!c.circle || !Array.isArray(c.circle)) c.circle = [...all];
+                else c.circle = c.circle.filter(s => typeof s === 'string' && s.trim());
 
-              if (!c.layoutsData || typeof c.layoutsData !== 'object') c.layoutsData = {};
+                if (!c.layoutsData || typeof c.layoutsData !== 'object') c.layoutsData = {};
 
-              if (!c.layoutsData.half || !Array.isArray(c.layoutsData.half) || c.layoutsData.half.length < 2 || c.layoutsData.half.flat().length === 0) c.layoutsData.half = this.autoBalanceGroups([...all], 2);
-              if (!c.layoutsData.third || !Array.isArray(c.layoutsData.third) || c.layoutsData.third.length < 3 || c.layoutsData.third.flat().length === 0) c.layoutsData.third = this.autoBalanceGroups([...all], 3);
-              if (!c.layoutsData.fourth || !Array.isArray(c.layoutsData.fourth) || c.layoutsData.fourth.length < 4 || c.layoutsData.fourth.flat().length === 0) c.layoutsData.fourth = this.autoBalanceGroups([...all], 4);
-              if (!c.layoutsData.fifth || !Array.isArray(c.layoutsData.fifth) || c.layoutsData.fifth.length < 5 || c.layoutsData.fifth.flat().length === 0) c.layoutsData.fifth = this.autoBalanceGroups([...all], 5);
-              if (!c.layoutsData.sixth || !Array.isArray(c.layoutsData.sixth) || c.layoutsData.sixth.length < 6 || c.layoutsData.sixth.flat().length === 0) c.layoutsData.sixth = this.autoBalanceGroups([...all], 6);
-            });
-            this.currentClassId = savedId;
+                if (!c.layoutsData.half || !Array.isArray(c.layoutsData.half) || c.layoutsData.half.length < 2 || c.layoutsData.half.flat().length === 0) c.layoutsData.half = this.autoBalanceGroups([...all], 2, 'last');
+                if (!c.layoutsData.third || !Array.isArray(c.layoutsData.third) || c.layoutsData.third.length < 3 || c.layoutsData.third.flat().length === 0) c.layoutsData.third = this.autoBalanceGroups([...all], 3, 'last');
+                if (!c.layoutsData.fourth || !Array.isArray(c.layoutsData.fourth) || c.layoutsData.fourth.length < 4 || c.layoutsData.fourth.flat().length === 0) c.layoutsData.fourth = this.autoBalanceGroups([...all], 4, 'last');
+                if (!c.layoutsData.fifth || !Array.isArray(c.layoutsData.fifth) || c.layoutsData.fifth.length < 5 || c.layoutsData.fifth.flat().length === 0) c.layoutsData.fifth = this.autoBalanceGroups([...all], 5, 'last');
+                if (!c.layoutsData.sixth || !Array.isArray(c.layoutsData.sixth) || c.layoutsData.sixth.length < 6 || c.layoutsData.sixth.flat().length === 0) c.layoutsData.sixth = this.autoBalanceGroups([...all], 6, 'last');
+              });
+              this.currentClassId = savedId;
+            } else {
+              this.classes = [];
+            }
           } catch (e) {
+            console.error('Error loading saved class data:', e);
             this.classes = [];
           }
         }
@@ -240,41 +373,61 @@ class SeatingChartApp {
         return this.classes.find(c => c.id === this.currentClassId);
       }
 
-      toggleBalanceSetting() {
-        this.shouldBalanceClass = !this.shouldBalanceClass;
-        const btn = document.getElementById('btnBalanceToggle');
-        if (btn) {
-          if (this.shouldBalanceClass) {
-            btn.classList.remove('btn-secondary');
-            btn.classList.add('btn-primary');
+      setArrangeSeatingMode(mode) {
+        this.selectedArrangeMode = mode;
+        this.updateArrangeSeatingUI();
+      }
+
+      updateArrangeSeatingUI() {
+        const modes = ['first', 'last', 'random'];
+        modes.forEach(m => {
+          const btnId = 'btnArrange' + m.charAt(0).toUpperCase() + m.slice(1) + (m === 'first' ? 'Name' : m === 'last' ? 'Name' : '');
+          const btn = document.getElementById(btnId);
+          if (!btn) return;
+
+          if (this.selectedArrangeMode === m) {
+            btn.style.cssText = 'flex: 1; font-weight: bold; padding: 6px 4px; font-size: 0.8rem; background: #4f46e5; color: white; border: 1.5px solid #4338ca; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.15); cursor: pointer;';
           } else {
-            btn.classList.remove('btn-primary');
-            btn.classList.add('btn-secondary');
+            btn.style.cssText = 'flex: 1; font-weight: bold; padding: 6px 4px; font-size: 0.8rem; background: #e2e8f0; color: #475569; border: 1.5px solid #cbd5e1; border-radius: 6px; cursor: pointer;';
           }
-        }
+        });
       }
 
       openSettingsModal() {
         const currentClass = this.getCurrentClass();
         if (!currentClass) return;
 
-        this.shouldBalanceClass = false;
-        const btn = document.getElementById('btnBalanceToggle');
-        if (btn) {
-          btn.classList.remove('btn-primary');
-          btn.classList.add('btn-secondary');
-        }
+        this.selectedArrangeMode = currentClass.arrangeSeatingMode || null;
+        this.updateArrangeSeatingUI();
 
         const appNameEl = document.getElementById('settingsAppName');
         if (appNameEl) appNameEl.value = this.appName || 'ClassPlanner';
 
-        this.settingShowFaces = (currentClass.showFaces !== false);
+        this.settingShowFirstName = (currentClass.showFirstName !== false);
+        this.settingShowLastName = (currentClass.showLastName === true);
+        this.settingShowFaces = (currentClass.showFaces !== false && currentClass.showInitials !== false);
         this.settingShowGradesRatio = (currentClass.showGradesAttendanceRatio !== false);
-        this.updateSettingsToggleUI('btnToggleShowFaces', this.settingShowFaces);
-        this.updateSettingsToggleUI('btnToggleShowGradesRatio', this.settingShowGradesRatio);
-        this.updateSettingsToggleUI('btnToggleRemoveWarning', !this.suppressRemoveStudentWarning);
+
+        this.updateDisplayToggleUI('btnToggleDisplayFirstName', this.settingShowFirstName);
+        this.updateDisplayToggleUI('btnToggleDisplayLastName', this.settingShowLastName);
+        this.updateDisplayToggleUI('btnToggleDisplayInitials', this.settingShowFaces);
 
         document.getElementById('settingsModal').classList.add('active');
+      }
+
+      getGradingStyle(currentClass) {
+        const c = currentClass || this.getCurrentClass();
+        return (c && c.gradingStyle) || this.gradingStyle || 'informal';
+      }
+
+      updateDisplayToggleUI(btnId, isActive) {
+        const btn = document.getElementById(btnId);
+        if (!btn) return;
+        if (isActive) {
+          btn.style.cssText = 'font-weight: 700; padding: 5px 9px; font-size: 0.78rem; background: #38bdf8; color: white; border: 1.5px solid #0284c7; cursor: pointer; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.15s ease;';
+        } else {
+          btn.style.cssText = 'font-weight: 700; padding: 5px 9px; font-size: 0.78rem; background: #e2e8f0; color: #64748b; border: 1.5px solid #cbd5e1; cursor: pointer; border-radius: 6px; box-shadow: none; transition: all 0.15s ease;';
+        }
       }
 
       updateSettingsToggleUI(btnId, isActive) {
@@ -289,9 +442,21 @@ class SeatingChartApp {
         }
       }
 
+      toggleDisplaySetting(type) {
+        if (type === 'firstName') {
+          this.settingShowFirstName = !this.settingShowFirstName;
+          this.updateDisplayToggleUI('btnToggleDisplayFirstName', this.settingShowFirstName);
+        } else if (type === 'lastName') {
+          this.settingShowLastName = !this.settingShowLastName;
+          this.updateDisplayToggleUI('btnToggleDisplayLastName', this.settingShowLastName);
+        } else if (type === 'initials') {
+          this.settingShowFaces = !this.settingShowFaces;
+          this.updateDisplayToggleUI('btnToggleDisplayInitials', this.settingShowFaces);
+        }
+      }
+
       toggleShowFacesSetting() {
-        this.settingShowFaces = !this.settingShowFaces;
-        this.updateSettingsToggleUI('btnToggleShowFaces', this.settingShowFaces);
+        this.toggleDisplaySetting('initials');
       }
 
       toggleShowGradesRatioSetting() {
@@ -326,7 +491,10 @@ class SeatingChartApp {
           this.updateAppTitle();
         }
 
+        currentClass.showFirstName = this.settingShowFirstName;
+        currentClass.showLastName = this.settingShowLastName;
         currentClass.showFaces = this.settingShowFaces;
+        currentClass.showInitials = this.settingShowFaces;
         currentClass.showGradesAttendanceRatio = this.settingShowGradesRatio;
         localStorage.setItem('seatingApp_suppressRemoveStudentWarning', this.suppressRemoveStudentWarning.toString());
 
@@ -367,36 +535,35 @@ class SeatingChartApp {
           localStorage.setItem('seatingApp_suppressRemoveStudentWarning', this.suppressRemoveStudentWarning.toString());
         }
 
-        if (this.shouldBalanceClass) {
-          const allStudents = this.shuffleArray(this.getAllStudents());
-          const layout = currentClass.layout;
+        if (this.selectedArrangeMode) {
+          const mode = this.selectedArrangeMode;
+          currentClass.arrangeSeatingMode = mode;
+          const allList = this.getAllClassStudents(currentClass);
+          const seated = this.getAllStudents();
+          const allStudents = (seated && seated.length > 0) ? seated : allList;
+          const sortedStudents = this.sortStudentsByName(allStudents, mode);
+          const layout = currentClass.layout || 'rows';
 
           if (layout === 'circle') {
-            currentClass.circle = [...allStudents];
+            currentClass.circle = [...sortedStudents];
           } else if (layout === 'lines') {
             const numLines = currentClass.linesCount || 4;
-            currentClass.lines = this.autoBalanceGroups(allStudents, numLines);
+            currentClass.lines = this.autoBalanceGroups(allStudents, numLines, mode);
           } else if (['half', 'third', 'fourth', 'fifth', 'sixth'].includes(layout)) {
             const numGroups = layout === 'half' ? 2 : layout === 'third' ? 3 : layout === 'fourth' ? 4 : layout === 'fifth' ? 5 : 6;
-            currentClass.layoutsData[layout] = this.autoBalanceGroups(allStudents, numGroups);
+            currentClass.layoutsData[layout] = this.autoBalanceGroups(allStudents, numGroups, mode);
           } else {
             // Rows layout
             if (currentClass.divideRows) {
               const numSections = currentClass.rowsCount * 2;
-              const balanced = Array.from({ length: numSections }, () => []);
-              allStudents.forEach((st, i) => {
-                balanced[i % numSections].push(st);
-              });
+              const balanced = this.distributeStudentsEquallyInOrder(allStudents, numSections, mode);
               currentClass.dividedRowsData = [];
               for (let r = 0; r < currentClass.rowsCount; r++) {
                 currentClass.dividedRowsData.push([balanced[r * 2] || [], balanced[r * 2 + 1] || []]);
               }
             } else {
-              const numRows = currentClass.rowsCount;
-              currentClass.rows = Array.from({ length: numRows }, () => []);
-              allStudents.forEach((st, i) => {
-                currentClass.rows[i % numRows].push(st);
-              });
+              const numRows = currentClass.rowsCount || 4;
+              currentClass.rows = this.distributeStudentsEquallyInOrder(allStudents, numRows, mode);
             }
           }
         }
@@ -420,9 +587,12 @@ class SeatingChartApp {
 
         const exportPayload = {
           app: 'ClassPlanner',
-          version: '1.0',
+          version: '1.3',
+          appName: this.appName || 'ClassPlanner',
           exportedAt: new Date().toISOString(),
+          gradingStyle: this.gradingStyle || 'informal',
           currentClassId: this.currentClassId,
+          subjects: this.subjects,
           classes: this.classes
         };
 
@@ -463,6 +633,20 @@ class SeatingChartApp {
 
             const confirmReplace = confirm('Are you sure you want to replace all current class data with the imported ClassPlanner file?');
             if (!confirmReplace) return;
+
+            if (importedData.appName) {
+              this.appName = importedData.appName;
+              this.updateAppTitle();
+            }
+
+            if (importedData.gradingStyle) {
+              this.gradingStyle = importedData.gradingStyle;
+              localStorage.setItem('seatingApp_gradingStyle', this.gradingStyle);
+            }
+
+            if (Array.isArray(importedData.subjects)) {
+              this.subjects = importedData.subjects;
+            }
 
             if (Array.isArray(importedData.classes)) {
               this.classes = importedData.classes;
@@ -737,35 +921,171 @@ class SeatingChartApp {
         }
       }
 
-      confirmAttendanceDate() {
-        this.activeTakeAttendanceMode = 'choose';
-
-        const btnChoose = document.getElementById('btnAttendanceChoose');
-        const icon = document.getElementById('attendanceStatusIcon');
-
-        if (btnChoose) {
-          btnChoose.classList.add('btn-green');
-          btnChoose.classList.remove('btn-secondary');
+      onAttendanceButtonClick() {
+        if (!this.isAttendanceSessionActive) {
+          this.openAttendanceDateModal();
+        } else {
+          this.completeAttendanceSession();
         }
-
-        if (icon) {
-          icon.classList.remove('unconfirmed');
-          icon.classList.add('confirmed');
-          const dash = icon.querySelector('.icon-dash');
-          const check = icon.querySelector('.icon-check');
-          if (dash) dash.style.display = 'none';
-          if (check) check.style.display = 'inline-block';
-        }
-
-        const currentClass = this.getCurrentClass();
-        if (currentClass) {
-          this.recordAttendanceForDate(currentClass, this.selectedAttendanceDate || new Date());
-        }
-
-        this.closeModal('attendanceDateModal');
       }
 
-      recordAttendanceForDate(currentClass, dateObj) {
+      startAttendanceSession() {
+        const currentClass = this.getCurrentClass();
+        if (!currentClass) return;
+
+        this.isAttendanceSessionActive = true;
+        this.activeAttendanceDate = this.selectedAttendanceDate || new Date();
+        this.activeAttendanceStatuses = {};
+
+        const absentSet = new Set(Array.isArray(currentClass.absentStudents) ? currentClass.absentStudents : []);
+        (currentClass.classList || []).forEach(student => {
+          this.activeAttendanceStatuses[student] = absentSet.has(student) ? 'absent' : 'present';
+        });
+
+        this.closeModal('attendanceDateModal');
+        this.updateAttendanceButtonUI();
+        this.render();
+      }
+
+      completeAttendanceSession() {
+        const currentClass = this.getCurrentClass();
+        if (currentClass && this.isAttendanceSessionActive) {
+          // Sync currentClass.absentStudents
+          const newAbsent = [];
+          Object.keys(this.activeAttendanceStatuses).forEach(student => {
+            if (this.activeAttendanceStatuses[student] === 'absent') {
+              newAbsent.push(student);
+            }
+          });
+          currentClass.absentStudents = newAbsent;
+
+          this.recordAttendanceForDate(currentClass, this.activeAttendanceDate || new Date(), this.activeAttendanceStatuses);
+        }
+
+        this.isAttendanceSessionActive = false;
+        this.activeAttendanceDate = null;
+        this.activeAttendanceStatuses = {};
+
+        this.updateAttendanceButtonUI();
+
+        const refreshBtn = document.getElementById('btnAttendanceRefresh');
+        if (refreshBtn) {
+          refreshBtn.innerHTML = '✓';
+          refreshBtn.style.color = '#15803d';
+          refreshBtn.style.borderColor = '#86efac';
+          refreshBtn.style.background = '#dcfce7';
+          refreshBtn.style.fontWeight = '900';
+          refreshBtn.style.transform = 'scale(1.2)';
+          refreshBtn.style.transition = 'all 0.2s ease';
+          
+          setTimeout(() => {
+            refreshBtn.style.transform = 'scale(1)';
+          }, 200);
+
+          setTimeout(() => {
+            refreshBtn.innerHTML = '🔄';
+            refreshBtn.style.color = '';
+            refreshBtn.style.borderColor = '';
+            refreshBtn.style.background = '';
+            refreshBtn.style.fontWeight = '';
+            refreshBtn.style.transform = '';
+          }, 1200);
+        }
+
+        const statusIcon = document.getElementById('attendanceStatusIcon');
+        if (statusIcon) {
+          statusIcon.classList.remove('unconfirmed');
+          statusIcon.classList.add('confirmed');
+          const dash = statusIcon.querySelector('.icon-dash');
+          const check = statusIcon.querySelector('.icon-check');
+          if (dash) dash.style.display = 'none';
+          if (check) check.style.display = 'inline';
+
+          statusIcon.style.transform = 'scale(1.3)';
+          statusIcon.style.transition = 'transform 0.2s ease-out';
+          setTimeout(() => {
+            statusIcon.style.transform = 'scale(1)';
+          }, 250);
+
+          setTimeout(() => {
+            statusIcon.classList.remove('confirmed');
+            statusIcon.classList.add('unconfirmed');
+            if (dash) dash.style.display = 'inline';
+            if (check) check.style.display = 'none';
+          }, 3000);
+        }
+
+        this.saveData();
+        this.render();
+        if (this.isAttendanceView) {
+          this.renderAttendanceTable();
+        }
+      }
+
+      updateAttendanceButtonUI() {
+        const btn = document.getElementById('btnTakeAttendanceStart');
+        if (!btn) return;
+
+        if (this.isAttendanceSessionActive) {
+          btn.textContent = 'Complete';
+          btn.style.background = '#f97316';
+          btn.style.borderColor = '#ea580c';
+          btn.style.color = '#ffffff';
+        } else {
+          btn.textContent = 'Attendance';
+          btn.style.background = '#2563eb';
+          btn.style.borderColor = '#1d4ed8';
+          btn.style.color = '#ffffff';
+        }
+      }
+
+      reinstateAllPresent() {
+        const currentClass = this.getCurrentClass();
+        if (!currentClass) return;
+
+        currentClass.absentStudents = [];
+        if (this.isAttendanceSessionActive) {
+          (currentClass.classList || []).forEach(student => {
+            this.activeAttendanceStatuses[student] = 'present';
+          });
+        }
+
+        this.saveData();
+        this.render();
+        if (this.isAttendanceView) {
+          this.renderAttendanceTable();
+        }
+      }
+
+      toggleLiveAttendanceStudent(studentName) {
+        if (!studentName) return;
+        const currentClass = this.getCurrentClass();
+        if (!currentClass) return;
+
+        if (!this.activeAttendanceStatuses) {
+          this.activeAttendanceStatuses = {};
+        }
+
+        const absentSet = new Set(Array.isArray(currentClass.absentStudents) ? currentClass.absentStudents : []);
+        const currentStatus = this.activeAttendanceStatuses[studentName] || (absentSet.has(studentName) ? 'absent' : 'present');
+        const nextStatus = (currentStatus === 'present') ? 'absent' : 'present';
+
+        this.activeAttendanceStatuses[studentName] = nextStatus;
+
+        if (nextStatus === 'absent') {
+          if (!absentSet.has(studentName)) {
+            if (!Array.isArray(currentClass.absentStudents)) currentClass.absentStudents = [];
+            currentClass.absentStudents.push(studentName);
+          }
+        } else {
+          currentClass.absentStudents = (currentClass.absentStudents || []).filter(s => s !== studentName);
+        }
+
+        this.saveData();
+        this.render();
+      }
+
+      recordAttendanceForDate(currentClass, dateObj, customStatuses = null) {
         if (!currentClass) return;
 
         if (!Array.isArray(currentClass.attendanceDates)) {
@@ -786,7 +1106,9 @@ class SeatingChartApp {
 
         const statuses = {};
         (currentClass.classList || []).forEach(student => {
-          if (absentSet.has(student)) {
+          if (customStatuses && customStatuses[student] !== undefined) {
+            statuses[student] = customStatuses[student];
+          } else if (absentSet.has(student)) {
             statuses[student] = 'absent';
           } else if (unplacedSet.has(student)) {
             statuses[student] = 'unplaced';
@@ -819,26 +1141,47 @@ class SeatingChartApp {
       }
 
       getDefaultAttendanceDates() {
-        return [
-          { id: 'd1', date: '7/7/26', day: 'Tuesday', timestamp: new Date(2026, 6, 7).getTime() },
-          { id: 'd2', date: '7/9/26', day: 'Thursday', timestamp: new Date(2026, 6, 9).getTime() },
-          { id: 'd3', date: '7/11/26', day: 'Saturday', timestamp: new Date(2026, 6, 11).getTime() },
-          { id: 'd4', date: '7/14/26', day: 'Tuesday', timestamp: new Date(2026, 6, 14).getTime() },
-          { id: 'd5', date: '7/16/26', day: 'Thursday', timestamp: new Date(2026, 6, 16).getTime() },
-          { id: 'd6', date: '7/18/26', day: 'Saturday', timestamp: new Date(2026, 6, 18).getTime() },
-          { id: 'd7', date: '7/21/26', day: 'Tuesday', timestamp: new Date(2026, 6, 21).getTime() },
-          { id: 'd8', date: '7/23/26', day: 'Thursday', timestamp: new Date(2026, 6, 23).getTime() },
-          { id: 'd9', date: '7/25/26', day: 'Saturday', timestamp: new Date(2026, 6, 25).getTime() },
-          { id: 'd10', date: '7/28/26', day: 'Tuesday', timestamp: new Date(2026, 6, 28).getTime() }
-        ];
+        return [];
+      }
+
+      getClassSubjectId(c) {
+        const currentClass = c || this.getCurrentClass();
+        if (!currentClass) return 'subj_music';
+        return currentClass.subjectId || (this.subjects[0] ? this.subjects[0].id : 'subj_music');
+      }
+
+      getClassGradeColumns(c, subjectId = null) {
+        const currentClass = c || this.getCurrentClass();
+        if (!currentClass) return [];
+        if (!currentClass.subjectGrades || typeof currentClass.subjectGrades !== 'object') {
+          currentClass.subjectGrades = {};
+        }
+        const subjId = subjectId || this.getClassSubjectId(currentClass);
+        if (!Array.isArray(currentClass.subjectGrades[subjId])) {
+          if ((subjId === 'subj_music' || subjId === (this.subjects[0] && this.subjects[0].id)) && Array.isArray(currentClass.gradeColumns)) {
+            currentClass.subjectGrades[subjId] = [...currentClass.gradeColumns];
+          } else {
+            currentClass.subjectGrades[subjId] = [];
+          }
+        }
+        return currentClass.subjectGrades[subjId];
+      }
+
+      setClassGradeColumns(columns, c, subjectId = null) {
+        const currentClass = c || this.getCurrentClass();
+        if (!currentClass) return;
+        if (!currentClass.subjectGrades || typeof currentClass.subjectGrades !== 'object') {
+          currentClass.subjectGrades = {};
+        }
+        const subjId = subjectId || this.getClassSubjectId(currentClass);
+        currentClass.subjectGrades[subjId] = columns;
+        if (subjId === 'subj_music' || subjId === (this.subjects[0] && this.subjects[0].id)) {
+          currentClass.gradeColumns = columns;
+        }
       }
 
       getDefaultGradeColumns() {
-        return [
-          { id: 'g1', title: 'Singing', date: '8/11/26', day: 'Tuesday', timestamp: new Date(2026, 7, 11).getTime(), grades: { 'Alex Morgan': 'plus', 'Jordan Lee': 'plus', 'Taylor Smith': 'minus' } },
-          { id: 'g2', title: 'Singing', date: '8/13/26', day: 'Thursday', timestamp: new Date(2026, 7, 13).getTime(), grades: { 'Alex Morgan': 'plus', 'Jordan Lee': 'minus', 'Taylor Smith': 'x' } },
-          { id: 'g3', title: 'Instruments', date: '8/15/26', day: 'Saturday', timestamp: new Date(2026, 7, 15).getTime(), grades: { 'Alex Morgan': 'plus', 'Jordan Lee': 'plus', 'Taylor Smith': 'plus' } }
-        ];
+        return [];
       }
 
       switchViewMode(mode) {
@@ -883,6 +1226,8 @@ class SeatingChartApp {
           }
         });
 
+        const fullscreenLayoutBtn = document.getElementById('fullscreenLayoutBtn');
+
         if (this.currentViewMode === 'attendance') {
           if (seatingBody) seatingBody.style.display = 'none';
           if (gradesBody) gradesBody.style.display = 'none';
@@ -895,10 +1240,12 @@ class SeatingChartApp {
           }
 
           if (layoutBtn) layoutBtn.style.display = 'none';
-          if (resizeBtn) resizeBtn.style.display = 'none';
+          if (resizeBtn) resizeBtn.style.display = '';
           if (chartCamBtn) chartCamBtn.style.display = 'none';
           if (attendanceCamBtn) attendanceCamBtn.style.display = 'inline-flex';
           if (gradesCamBtn) gradesCamBtn.style.display = 'none';
+
+          if (fullscreenLayoutBtn) fullscreenLayoutBtn.style.display = 'none';
 
           this.renderAttendanceTable();
         } else if (this.currentViewMode === 'grades') {
@@ -913,10 +1260,12 @@ class SeatingChartApp {
           }
 
           if (layoutBtn) layoutBtn.style.display = 'none';
-          if (resizeBtn) resizeBtn.style.display = 'none';
+          if (resizeBtn) resizeBtn.style.display = '';
           if (chartCamBtn) chartCamBtn.style.display = 'none';
           if (attendanceCamBtn) attendanceCamBtn.style.display = 'none';
           if (gradesCamBtn) gradesCamBtn.style.display = 'inline-flex';
+
+          if (fullscreenLayoutBtn) fullscreenLayoutBtn.style.display = 'none';
 
           this.renderGradesTable();
         } else if (this.currentViewMode === 'about') {
@@ -930,6 +1279,8 @@ class SeatingChartApp {
           if (chartCamBtn) chartCamBtn.style.display = 'none';
           if (attendanceCamBtn) attendanceCamBtn.style.display = 'none';
           if (gradesCamBtn) gradesCamBtn.style.display = 'none';
+
+          if (fullscreenLayoutBtn) fullscreenLayoutBtn.style.display = 'none';
         } else {
           if (attendanceBody) attendanceBody.style.display = 'none';
           if (gradesBody) gradesBody.style.display = 'none';
@@ -946,8 +1297,17 @@ class SeatingChartApp {
           if (chartCamBtn) chartCamBtn.style.display = 'inline-flex';
           if (attendanceCamBtn) attendanceCamBtn.style.display = 'none';
           if (gradesCamBtn) gradesCamBtn.style.display = 'none';
+
+          if (fullscreenLayoutBtn) fullscreenLayoutBtn.style.display = '';
         }
 
+        const fsSubjectTab = document.getElementById('fullscreenSubjectTab');
+        if (fsSubjectTab) {
+          fsSubjectTab.style.display = (this.currentViewMode === 'grades') ? 'inline-flex' : 'none';
+        }
+
+        this.updateAddGradeColumnButtonsUI();
+        this.updateAddAttendanceButtonUI();
         this.updateSubheaders();
       }
 
@@ -958,6 +1318,16 @@ class SeatingChartApp {
 
       triggerChartCameraClick(btnEl) {
         this.triggerCameraClick(btnEl);
+      }
+
+      triggerFullScreenCameraClick(btnEl) {
+        if (this.currentViewMode === 'attendance') {
+          this.triggerAttendanceCameraClick(btnEl);
+        } else if (this.currentViewMode === 'grades') {
+          this.triggerGradesCameraClick(btnEl);
+        } else {
+          this.triggerChartCameraClick(btnEl);
+        }
       }
 
       getCategoryTheme(title) {
@@ -1002,7 +1372,7 @@ class SeatingChartApp {
             color: '#be185d',
             border: '#fbcfe8'
           };
-        } else if (cat.includes('effort')) {
+        } else if (cat.includes('effort') || cat.includes('behavior') || cat.includes('participation')) {
           return {
             key: 'effort',
             bgCell: '#fef2f2',
@@ -1010,14 +1380,58 @@ class SeatingChartApp {
             color: '#b91c1c',
             border: '#fca5a5'
           };
+        } else if (cat.includes('drawing') || cat.includes('pottery') || cat.includes('art') || cat.includes('paint') || cat.includes('craft')) {
+          return {
+            key: 'art',
+            bgCell: '#faf5ff',
+            bgHeader: '#f3e8ff',
+            color: '#7e22ce',
+            border: '#d8b4fe'
+          };
         }
+
+        // Palette generator for any arbitrary category name
+        const palette = [
+          { bgCell: '#fff7ed', bgHeader: '#ffedd5', color: '#c2410c', border: '#fdba74' }, // Orange
+          { bgCell: '#f0fdf4', bgHeader: '#dcfce7', color: '#15803d', border: '#86efac' }, // Green
+          { bgCell: '#eff6ff', bgHeader: '#dbeafe', color: '#1e40af', border: '#93c5fd' }, // Blue
+          { bgCell: '#faf5ff', bgHeader: '#f3e8ff', color: '#7e22ce', border: '#d8b4fe' }, // Purple
+          { bgCell: '#fdf2f8', bgHeader: '#fce7f3', color: '#be185d', border: '#fbcfe8' }, // Pink
+          { bgCell: '#fefce8', bgHeader: '#fef9c3', color: '#a16207', border: '#fde047' }, // Yellow
+          { bgCell: '#f0fdfa', bgHeader: '#ccfbf1', color: '#0f766e', border: '#5eead4' }, // Teal
+          { bgCell: '#fef2f2', bgHeader: '#fee2e2', color: '#b91c1c', border: '#fca5a5' }  // Red
+        ];
+
+        let hash = 0;
+        for (let i = 0; i < (title || '').length; i++) {
+          hash = ((hash << 5) - hash) + title.charCodeAt(i);
+          hash |= 0;
+        }
+        const pIndex = Math.abs(hash) % palette.length;
         return {
-          key: 'default',
-          bgCell: '#ffffff',
-          bgHeader: '#e0e7ff',
-          color: '#4f46e5',
-          border: '#c7d2fe'
+          key: 'custom_' + pIndex,
+          ...palette[pIndex]
         };
+      }
+
+      populateAssessmentCategoriesDropdown(selectId) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        select.innerHTML = '';
+
+        const currentClass = this.getCurrentClass();
+        const subjId = this.getClassSubjectId(currentClass);
+        const subjObj = this.subjects.find(s => s.id === subjId);
+        let categories = (subjObj && Array.isArray(subjObj.categories) && subjObj.categories.length > 0)
+          ? subjObj.categories
+          : ['Singing', 'Instruments', 'Movement', 'Culture', 'Theory', 'Effort'];
+
+        categories.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = cat;
+          opt.textContent = cat;
+          select.appendChild(opt);
+        });
       }
 
       formatDisplayDate(str) {
@@ -1033,39 +1447,277 @@ class SeatingChartApp {
         return s;
       }
 
+      normalizeDateString(str) {
+        if (!str) return '';
+        const s = String(str).trim();
+        const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+        if (isoMatch) {
+          const y = parseInt(isoMatch[1], 10) % 100;
+          const m = parseInt(isoMatch[2], 10);
+          const d = parseInt(isoMatch[3], 10);
+          return `${m}/${d}/${y < 10 ? '0' + y : y}`;
+        }
+        const mdyFullMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (mdyFullMatch) {
+          const m = parseInt(mdyFullMatch[1], 10);
+          const d = parseInt(mdyFullMatch[2], 10);
+          const y = parseInt(mdyFullMatch[3], 10) % 100;
+          return `${m}/${d}/${y < 10 ? '0' + y : y}`;
+        }
+        const mdyShortMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+        if (mdyShortMatch) {
+          const m = parseInt(mdyShortMatch[1], 10);
+          const d = parseInt(mdyShortMatch[2], 10);
+          const y = parseInt(mdyShortMatch[3], 10);
+          return `${m}/${d}/${y < 10 ? '0' + y : y}`;
+        }
+        return s;
+      }
+
+      getAttendanceRecordForDate(currentClass, dateStr) {
+        if (!currentClass || !Array.isArray(currentClass.attendanceDates) || !dateStr) return null;
+        const normTarget = this.normalizeDateString(dateStr);
+        if (!normTarget) return null;
+        return currentClass.attendanceDates.find(att => {
+          return this.normalizeDateString(att.date) === normTarget;
+        }) || null;
+      }
+
+      updateAddGradeColumnButtonsUI() {
+        const headerAddBtn = document.getElementById('headerAddGradeBtn');
+        const fsAddBtn = document.getElementById('fullscreenAddGradeBtn');
+        const btns = [headerAddBtn, fsAddBtn].filter(Boolean);
+
+        btns.forEach(btn => {
+          if (this.isDraftScoringActive && this.draftGradeColumn) {
+            btn.textContent = 'Complete';
+            btn.style.background = '#f97316';
+            btn.style.borderColor = '#ea580c';
+            btn.style.color = '#ffffff';
+          } else {
+            btn.textContent = 'Add Grade';
+            btn.style.background = '#dc2626';
+            btn.style.borderColor = '#b91c1c';
+            btn.style.color = '#ffffff';
+          }
+        });
+
+        if (headerAddBtn) {
+          headerAddBtn.style.display = (this.currentViewMode === 'grades') ? 'inline-flex' : 'none';
+        }
+        if (fsAddBtn) {
+          fsAddBtn.style.display = (this.currentViewMode === 'grades') ? 'inline-flex' : 'none';
+        }
+      }
+
+      updateAddAttendanceButtonUI() {
+        const headerBtn = document.getElementById('headerAddAttendanceBtn');
+        const fsBtn = document.getElementById('fullscreenAddAttendanceBtn');
+        const btns = [headerBtn, fsBtn].filter(Boolean);
+
+        btns.forEach(btn => {
+          if (this.isDraftAttendanceActive && this.draftAttendanceDate) {
+            btn.textContent = 'Complete';
+            btn.style.background = '#f97316';
+            btn.style.borderColor = '#ea580c';
+            btn.style.color = '#ffffff';
+          } else {
+            btn.textContent = 'Add Date';
+            btn.style.background = '#2563eb';
+            btn.style.borderColor = '#1d4ed8';
+            btn.style.color = '#ffffff';
+          }
+        });
+
+        if (headerBtn) {
+          headerBtn.style.display = (this.currentViewMode === 'attendance') ? 'inline-flex' : 'none';
+        }
+        if (fsBtn) {
+          fsBtn.style.display = (this.currentViewMode === 'attendance') ? 'inline-flex' : 'none';
+        }
+      }
+
+      onModalGradingStyleChange(modalType) {
+        if (modalType === 'addGrade') {
+          const select = document.getElementById('addGradeGradingStyleSelect');
+          const maxCont = document.getElementById('addGradeMaxPointsContainer');
+          if (select && maxCont) {
+            maxCont.style.display = (select.value === 'points') ? 'block' : 'none';
+          }
+        } else if (modalType === 'startSession') {
+          const select = document.getElementById('startGradeSessionGradingStyleSelect');
+          const maxCont = document.getElementById('startGradeSessionMaxPointsContainer');
+          if (select && maxCont) {
+            maxCont.style.display = (select.value === 'points') ? 'block' : 'none';
+          }
+        }
+        this.renderModalAutoFillControls(modalType);
+      }
+
+      toggleModalAutoFill(modalType) {
+        if (!this.autoFillState) {
+          this.autoFillState = {
+            addGrade: { active: false, informal: 'plus', standards: '4', points: null },
+            startSession: { active: false, informal: 'plus', standards: '4', points: null }
+          };
+        }
+        if (!this.autoFillState[modalType]) {
+          this.autoFillState[modalType] = { active: false, informal: 'plus', standards: '4', points: null };
+        }
+        this.autoFillState[modalType].active = !this.autoFillState[modalType].active;
+        const btnId = (modalType === 'addGrade') ? 'addGradeAutoFillToggle' : 'startGradeSessionAutoFillToggle';
+        const btn = document.getElementById(btnId);
+        if (btn) {
+          btn.classList.toggle('active', this.autoFillState[modalType].active);
+        }
+      }
+
+      setModalAutoFillValue(modalType, styleType, val) {
+        if (!this.autoFillState) {
+          this.autoFillState = {
+            addGrade: { active: false, informal: 'plus', standards: '4', points: null },
+            startSession: { active: false, informal: 'plus', standards: '4', points: null }
+          };
+        }
+        if (!this.autoFillState[modalType]) {
+          this.autoFillState[modalType] = { active: false, informal: 'plus', standards: '4', points: null };
+        }
+        this.autoFillState[modalType][styleType] = val;
+        this.renderModalAutoFillControls(modalType);
+      }
+
+      cycleModalAutoFillMinus(modalType) {
+        if (!this.autoFillState) {
+          this.autoFillState = {
+            addGrade: { active: false, informal: 'plus', standards: '4', points: null },
+            startSession: { active: false, informal: 'plus', standards: '4', points: null }
+          };
+        }
+        if (!this.autoFillState[modalType]) {
+          this.autoFillState[modalType] = { active: false, informal: 'plus', standards: '4', points: null };
+        }
+        const cur = this.autoFillState[modalType].informal;
+        this.autoFillState[modalType].informal = (cur === 'minus') ? 'x' : 'minus';
+        this.renderModalAutoFillControls(modalType);
+      }
+
+      onModalMaxPointsInput(modalType) {
+        this.renderModalAutoFillControls(modalType);
+      }
+
+      openAutoFillPointsModal(modalType) {
+        this.openPointsEntryModal('All Students (Auto Fill)', 'autofill_' + modalType, null);
+      }
+
+      renderModalAutoFillControls(modalType) {
+        if (!this.autoFillState) {
+          this.autoFillState = {
+            addGrade: { active: false, informal: 'plus', standards: '4', points: null },
+            startSession: { active: false, informal: 'plus', standards: '4', points: null }
+          };
+        }
+        if (!this.autoFillState[modalType]) {
+          this.autoFillState[modalType] = { active: false, informal: 'plus', standards: '4', points: null };
+        }
+
+        const styleSelectId = (modalType === 'addGrade') ? 'addGradeGradingStyleSelect' : 'startGradeSessionGradingStyleSelect';
+        const select = document.getElementById(styleSelectId);
+        const style = (select && select.value) ? select.value : 'informal';
+
+        const maxInputId = (modalType === 'addGrade') ? 'gradeMaxPointsInput' : 'gradeSessionMaxPointsInput';
+        const maxInput = document.getElementById(maxInputId);
+        const maxPts = (maxInput && maxInput.value) ? (parseInt(maxInput.value, 10) || 10) : 10;
+
+        const contId = (modalType === 'addGrade') ? 'addGradeAutoFillControls' : 'startGradeSessionAutoFillControls';
+        const cont = document.getElementById(contId);
+        if (!cont) return;
+
+        if (style === 'informal') {
+          const curVal = this.autoFillState[modalType].informal || 'plus';
+          const isPlus = (curVal === 'plus' || curVal === 'check');
+          const isMinus = (curVal === 'minus');
+          const isX = (curVal === 'x');
+          cont.innerHTML = `
+            <div class="grade-score-controls" style="margin: 0; display: inline-flex; gap: 4px;">
+              <button type="button" class="grade-score-btn grade-btn-plus ${isPlus ? 'active-check' : ''}" style="width: 28px; height: 28px; font-size: 1rem; border-radius: 6px;" onclick="app.setModalAutoFillValue('${modalType}', 'informal', 'plus')" title="Auto Fill Plus (+)">+</button>
+              <button type="button" class="grade-score-btn grade-btn-minus ${isMinus ? 'active-minus' : (isX ? 'active-x' : '')}" style="width: 28px; height: 28px; font-size: 1rem; border-radius: 6px;" onclick="app.cycleModalAutoFillMinus('${modalType}')" title="Auto Fill Minus (−) / X (✕)">${isX ? '✕' : '−'}</button>
+            </div>`;
+        } else if (style === 'standards') {
+          const curVal = String(this.autoFillState[modalType].standards || '4');
+          cont.innerHTML = `
+            <div class="standards-score-controls" style="margin: 0; display: inline-flex; gap: 3px;">
+              <button type="button" class="standards-btn standards-btn-4 ${curVal === '4' ? 'active-4' : ''}" style="width: 26px; height: 26px; font-size: 0.8rem;" onclick="app.setModalAutoFillValue('${modalType}', 'standards', '4')" title="4 - Advanced (Yellow)">4</button>
+              <button type="button" class="standards-btn standards-btn-3 ${curVal === '3' ? 'active-3' : ''}" style="width: 26px; height: 26px; font-size: 0.8rem;" onclick="app.setModalAutoFillValue('${modalType}', 'standards', '3')" title="3 - Proficient (Green)">3</button>
+              <button type="button" class="standards-btn standards-btn-2 ${curVal === '2' ? 'active-2' : ''}" style="width: 26px; height: 26px; font-size: 0.8rem;" onclick="app.setModalAutoFillValue('${modalType}', 'standards', '2')" title="2 - Approaching (Orange)">2</button>
+              <button type="button" class="standards-btn standards-btn-1 ${curVal === '1' ? 'active-1' : ''}" style="width: 26px; height: 26px; font-size: 0.8rem;" onclick="app.setModalAutoFillValue('${modalType}', 'standards', '1')" title="1 - Beginning (Red)">1</button>
+            </div>`;
+        } else if (style === 'points') {
+          let curPts = this.autoFillState[modalType].points;
+          if (curPts === null || curPts === undefined) curPts = maxPts;
+          const isScored = (curPts !== '' && curPts !== null && curPts !== undefined && !isNaN(Number(curPts)));
+          const earned = isScored ? Number(curPts) : '';
+          const pct = isScored ? Math.round((earned / maxPts) * 100) : 0;
+          cont.innerHTML = isScored
+            ? `<button type="button" class="points-badge-btn points-badge-scored" style="font-size: 0.8rem; padding: 4px 8px;" onclick="app.openAutoFillPointsModal('${modalType}')" title="Click to edit Auto Fill score">${earned}/${maxPts} <span class="points-badge-pct">(${pct}%)</span></button>`
+            : `<button type="button" class="points-badge-btn points-badge-unscored" style="font-size: 0.8rem; padding: 4px 8px;" onclick="app.openAutoFillPointsModal('${modalType}')" title="Click to edit Auto Fill score">? / ${maxPts}</button>`;
+        }
+      }
+
       openAddGradeColumnModal() {
+        const currentClass = this.getCurrentClass();
+
         if (this.isDraftScoringActive && this.draftGradeColumn) {
           // Complete the active draft assessment column!
-          const currentClass = this.getCurrentClass();
           if (currentClass) {
-            if (!Array.isArray(currentClass.gradeColumns)) {
-              currentClass.gradeColumns = this.getDefaultGradeColumns();
+            const cols = this.getClassGradeColumns(currentClass);
+            const savedCol = {
+              id: this.draftGradeColumn.id || ('g_' + Date.now()),
+              title: this.draftGradeColumn.title || 'Assessment',
+              date: this.draftGradeColumn.date || '',
+              timestamp: this.draftGradeColumn.timestamp || Date.now(),
+              gradingStyle: this.draftGradeColumn.gradingStyle || this.getGradingStyle(currentClass),
+              grades: { ...(this.draftGradeColumn.grades || {}) }
+            };
+            if (savedCol.gradingStyle === 'points') {
+              savedCol.maxPoints = this.draftGradeColumn.maxPoints || 10;
             }
-
-            currentClass.gradeColumns.push({ ...this.draftGradeColumn });
+            cols.push(savedCol);
+            this.setClassGradeColumns(cols, currentClass);
             this.saveData();
           }
 
           this.draftGradeColumn = null;
           this.isDraftScoringActive = false;
 
-          const addBtn = document.getElementById('btnAddGradeColumn');
-          if (addBtn) {
-            addBtn.textContent = '+ Add Assessment';
-            addBtn.classList.remove('btn-orange');
-            addBtn.classList.add('btn-primary');
-            addBtn.style.background = '';
-            addBtn.style.borderColor = '';
-            addBtn.style.color = '';
-          }
-
+          this.updateAddGradeColumnButtonsUI();
           this.renderGradesTable();
           return;
         }
 
+        this.populateAssessmentCategoriesDropdown('gradeTitleSelect');
+
+        const style = this.getGradingStyle(currentClass);
+        const styleSelect = document.getElementById('addGradeGradingStyleSelect');
+        if (styleSelect) styleSelect.value = style;
+        this.onModalGradingStyleChange('addGrade');
+
+        if (!this.autoFillState) {
+          this.autoFillState = {
+            addGrade: { active: false, informal: 'plus', standards: '4', points: null },
+            startSession: { active: false, informal: 'plus', standards: '4', points: null }
+          };
+        }
+        if (!this.autoFillState.addGrade) {
+          this.autoFillState.addGrade = { active: false, informal: 'plus', standards: '4', points: null };
+        }
+        this.autoFillState.addGrade.active = false;
+        const autoFillBtn = document.getElementById('addGradeAutoFillToggle');
+        if (autoFillBtn) autoFillBtn.classList.remove('active');
+        this.renderModalAutoFillControls('addGrade');
+
         const titleSelect = document.getElementById('gradeTitleSelect');
         const dateInput = document.getElementById('gradeDateInput');
-        if (titleSelect) titleSelect.selectedIndex = 0;
+        if (titleSelect && titleSelect.options.length > 0) titleSelect.selectedIndex = 0;
         if (dateInput) {
           const today = new Date();
           const yyyy = today.getFullYear();
@@ -1089,31 +1741,71 @@ class SeatingChartApp {
         const titleSelect = document.getElementById('gradeTitleSelect');
         const dateInput = document.getElementById('gradeDateInput');
 
-        const title = (titleSelect && titleSelect.value) ? titleSelect.value : 'Singing';
+        const title = (titleSelect && titleSelect.value) ? titleSelect.value : 'Assessment';
         const rawDate = (dateInput && dateInput.value) ? dateInput.value.trim() : '';
         const date = this.formatDisplayDate(rawDate);
+        const styleSelect = document.getElementById('addGradeGradingStyleSelect');
+        const style = (styleSelect && styleSelect.value) ? styleSelect.value : this.getGradingStyle(currentClass);
 
         this.draftGradeColumn = {
           id: 'g_' + Date.now(),
           title: title,
           date: date,
           timestamp: Date.now(),
+          gradingStyle: style,
           grades: {}
         };
+        let maxPoints = 10;
+        if (style === 'points') {
+          const maxPointsInput = document.getElementById('gradeMaxPointsInput');
+          maxPoints = (maxPointsInput && maxPointsInput.value) ? parseInt(maxPointsInput.value, 10) : 10;
+          if (isNaN(maxPoints) || maxPoints <= 0) maxPoints = 10;
+          this.draftGradeColumn.maxPoints = maxPoints;
+        }
+
+        // Apply Auto Fill if active
+        if (this.autoFillState && this.autoFillState.addGrade && this.autoFillState.addGrade.active) {
+          let masterScore = '';
+          if (style === 'points') {
+            const p = this.autoFillState.addGrade.points;
+            masterScore = (p !== null && p !== undefined && p !== '' && !isNaN(Number(p))) ? Number(p) : maxPoints;
+          } else if (style === 'standards') {
+            masterScore = this.autoFillState.addGrade.standards || '4';
+          } else {
+            masterScore = this.autoFillState.addGrade.informal || 'plus';
+          }
+          const studentSet = new Set();
+          if (Array.isArray(currentClass.classList)) {
+            currentClass.classList.forEach(s => { if (typeof s === 'string' && s.trim()) studentSet.add(s.trim()); });
+          }
+          if (Array.isArray(currentClass.seats)) {
+            currentClass.seats.forEach(st => { if (st && st.student && typeof st.student === 'string' && st.student.trim()) studentSet.add(st.student.trim()); });
+          }
+          if (Array.isArray(currentClass.students)) {
+            currentClass.students.forEach(s => { if (typeof s === 'string' && s.trim()) studentSet.add(s.trim()); });
+          }
+          studentSet.forEach(student => {
+            this.draftGradeColumn.grades[student] = masterScore;
+          });
+        }
+
         this.isDraftScoringActive = true;
 
         this.closeAddGradeColumnModal();
+        this.updateAddGradeColumnButtonsUI();
+        this.renderGradesTable();
+      }
 
-        const addBtn = document.getElementById('btnAddGradeColumn');
-        if (addBtn) {
-          addBtn.textContent = 'Complete';
-          addBtn.classList.remove('btn-primary');
-          addBtn.style.background = '#f97316';
-          addBtn.style.borderColor = '#ea580c';
-          addBtn.style.color = '#ffffff';
+      recordDraftPointsScore(studentName, value) {
+        if (!this.isDraftScoringActive || !this.draftGradeColumn) return;
+        if (!studentName) return;
+
+        if (!this.draftGradeColumn.grades) {
+          this.draftGradeColumn.grades = {};
         }
 
-        this.renderGradesTable();
+        const trimmed = String(value).trim();
+        this.draftGradeColumn.grades[studentName] = (trimmed === '') ? '' : Number(trimmed);
       }
 
       recordDraftGradeScore(studentName, action) {
@@ -1127,7 +1819,9 @@ class SeatingChartApp {
         const currentScore = this.draftGradeColumn.grades[studentName] || '';
         let nextScore = '';
 
-        if (action === 'plus') {
+        if (['4', '3', '2', '1'].includes(String(action))) {
+          nextScore = (String(currentScore) === String(action)) ? '' : String(action);
+        } else if (action === 'plus') {
           if (currentScore === 'check' || currentScore === 'plus') {
             nextScore = '';
           } else {
@@ -1149,9 +1843,31 @@ class SeatingChartApp {
 
       onGradeSessionButtonClick() {
         if (!this.isGradeScoringActive) {
+          this.populateAssessmentCategoriesDropdown('gradeSessionTitleSelect');
+
+          const currentClass = this.getCurrentClass();
+          const style = this.getGradingStyle(currentClass);
+          const styleSelect = document.getElementById('startGradeSessionGradingStyleSelect');
+          if (styleSelect) styleSelect.value = style;
+          this.onModalGradingStyleChange('startSession');
+
+          if (!this.autoFillState) {
+            this.autoFillState = {
+              addGrade: { active: false, informal: 'plus', standards: '4', points: null },
+              startSession: { active: false, informal: 'plus', standards: '4', points: null }
+            };
+          }
+          if (!this.autoFillState.startSession) {
+            this.autoFillState.startSession = { active: false, informal: 'plus', standards: '4', points: null };
+          }
+          this.autoFillState.startSession.active = false;
+          const autoFillBtn = document.getElementById('startGradeSessionAutoFillToggle');
+          if (autoFillBtn) autoFillBtn.classList.remove('active');
+          this.renderModalAutoFillControls('startSession');
+
           const titleSelect = document.getElementById('gradeSessionTitleSelect');
           const dateInput = document.getElementById('gradeSessionDateInput');
-          if (titleSelect) titleSelect.selectedIndex = 0;
+          if (titleSelect && titleSelect.options.length > 0) titleSelect.selectedIndex = 0;
           if (dateInput) {
             const today = new Date();
             const yyyy = today.getFullYear();
@@ -1165,23 +1881,27 @@ class SeatingChartApp {
           // Complete active live grade session!
           const currentClass = this.getCurrentClass();
           if (currentClass && this.activeGradeSession) {
-            if (!Array.isArray(currentClass.gradeColumns)) {
-              currentClass.gradeColumns = this.getDefaultGradeColumns();
-            }
+            const cols = this.getClassGradeColumns(currentClass);
 
             const title = this.activeGradeSession.title || 'Singing';
             const date = this.activeGradeSession.date || 'Date';
             const scores = this.activeGradeSession.scores || {};
-
+            const gradingStyle = this.activeGradeSession.gradingStyle || this.getGradingStyle(currentClass);
             const newId = 'g_' + Date.now();
-            currentClass.gradeColumns.push({
+            const newCol = {
               id: newId,
               title: title,
               date: date,
               timestamp: Date.now(),
+              gradingStyle: gradingStyle,
               grades: { ...scores }
-            });
+            };
+            if (gradingStyle === 'points') {
+              newCol.maxPoints = this.activeGradeSession.maxPoints || 10;
+            }
+            cols.push(newCol);
 
+            this.setClassGradeColumns(cols, currentClass);
             this.saveData();
           }
 
@@ -1192,12 +1912,10 @@ class SeatingChartApp {
           const statusIcon = document.getElementById('gradeStatusIcon');
 
           if (startBtn) {
-            startBtn.textContent = 'Start';
-            startBtn.classList.remove('btn-primary');
-            startBtn.classList.add('btn-secondary');
-            startBtn.style.background = '';
-            startBtn.style.borderColor = '';
-            startBtn.style.color = '';
+            startBtn.textContent = 'Add Grade';
+            startBtn.style.background = '#dc2626';
+            startBtn.style.borderColor = '#b91c1c';
+            startBtn.style.color = '#ffffff';
           }
 
           // Green check mark confirmation flash animation
@@ -1237,12 +1955,50 @@ class SeatingChartApp {
         const title = (titleSelect && titleSelect.value) ? titleSelect.value : 'Singing';
         const rawDate = (dateInput && dateInput.value) ? dateInput.value.trim() : '';
         const date = this.formatDisplayDate(rawDate);
+        const styleSelect = document.getElementById('startGradeSessionGradingStyleSelect');
+        const style = (styleSelect && styleSelect.value) ? styleSelect.value : this.getGradingStyle(this.getCurrentClass());
 
         this.activeGradeSession = {
           title: title,
           date: date,
+          gradingStyle: style,
           scores: {}
         };
+        let maxPoints = 10;
+        if (style === 'points') {
+          const maxPointsInput = document.getElementById('gradeSessionMaxPointsInput');
+          maxPoints = (maxPointsInput && maxPointsInput.value) ? parseInt(maxPointsInput.value, 10) : 10;
+          if (isNaN(maxPoints) || maxPoints <= 0) maxPoints = 10;
+          this.activeGradeSession.maxPoints = maxPoints;
+        }
+
+        // Apply Auto Fill if active
+        const currentClass = this.getCurrentClass();
+        if (this.autoFillState && this.autoFillState.startSession && this.autoFillState.startSession.active && currentClass) {
+          let masterScore = '';
+          if (style === 'points') {
+            const p = this.autoFillState.startSession.points;
+            masterScore = (p !== null && p !== undefined && p !== '' && !isNaN(Number(p))) ? Number(p) : maxPoints;
+          } else if (style === 'standards') {
+            masterScore = this.autoFillState.startSession.standards || '4';
+          } else {
+            masterScore = this.autoFillState.startSession.informal || 'plus';
+          }
+          const studentSet = new Set();
+          if (Array.isArray(currentClass.classList)) {
+            currentClass.classList.forEach(s => { if (typeof s === 'string' && s.trim()) studentSet.add(s.trim()); });
+          }
+          if (Array.isArray(currentClass.seats)) {
+            currentClass.seats.forEach(st => { if (st && st.student && typeof st.student === 'string' && st.student.trim()) studentSet.add(st.student.trim()); });
+          }
+          if (Array.isArray(currentClass.students)) {
+            currentClass.students.forEach(s => { if (typeof s === 'string' && s.trim()) studentSet.add(s.trim()); });
+          }
+          studentSet.forEach(student => {
+            this.activeGradeSession.scores[student] = masterScore;
+          });
+        }
+
         this.isGradeScoringActive = true;
 
         this.closeModal('startGradeSessionModal');
@@ -1260,6 +2016,188 @@ class SeatingChartApp {
         this.render();
       }
 
+      openPointsEntryModal(studentName, context = 'live', colId = null) {
+        this.pointsEntryContext = { studentName, context, colId };
+
+        const currentClass = this.getCurrentClass();
+        const profile = this.getStudentProfile(currentClass, studentName);
+        const fullName = (profile.lastName && profile.lastName.trim())
+          ? `${profile.firstName} ${profile.lastName}`
+          : (profile.firstName || studentName);
+
+        let maxPoints = 10;
+        let currentScore = '';
+        let title = 'Assessment';
+
+        if (context === 'live') {
+          maxPoints = (this.activeGradeSession && this.activeGradeSession.maxPoints) || 10;
+          title = (this.activeGradeSession && this.activeGradeSession.title) || 'Assessment';
+          currentScore = (this.activeGradeSession && this.activeGradeSession.scores)
+            ? (this.activeGradeSession.scores[studentName] !== undefined ? this.activeGradeSession.scores[studentName] : '')
+            : '';
+        } else if (context === 'draft') {
+          maxPoints = (this.draftGradeColumn && this.draftGradeColumn.maxPoints) || 10;
+          title = (this.draftGradeColumn && this.draftGradeColumn.title) || 'Assessment';
+          currentScore = (this.draftGradeColumn && this.draftGradeColumn.grades)
+            ? (this.draftGradeColumn.grades[studentName] !== undefined ? this.draftGradeColumn.grades[studentName] : '')
+            : '';
+        } else if (context === 'saved') {
+          const cols = this.getClassGradeColumns(currentClass);
+          const col = cols.find(g => g.id === colId);
+          if (col) {
+            maxPoints = col.maxPoints || 10;
+            title = col.title || 'Assessment';
+            currentScore = (col.grades && col.grades[studentName] !== undefined) ? col.grades[studentName] : '';
+          }
+        } else if (context === 'autofill_addGrade') {
+          const maxInput = document.getElementById('gradeMaxPointsInput');
+          maxPoints = (maxInput && maxInput.value) ? (parseInt(maxInput.value, 10) || 10) : 10;
+          title = 'Auto Fill Grade';
+          currentScore = (this.autoFillState && this.autoFillState.addGrade && this.autoFillState.addGrade.points !== null)
+            ? this.autoFillState.addGrade.points
+            : maxPoints;
+        } else if (context === 'autofill_startSession') {
+          const maxInput = document.getElementById('gradeSessionMaxPointsInput');
+          maxPoints = (maxInput && maxInput.value) ? (parseInt(maxInput.value, 10) || 10) : 10;
+          title = 'Auto Fill Grade';
+          currentScore = (this.autoFillState && this.autoFillState.startSession && this.autoFillState.startSession.points !== null)
+            ? this.autoFillState.startSession.points
+            : maxPoints;
+        }
+
+        const nameEl = document.getElementById('pointsEntryStudentName');
+        const subEl = document.getElementById('pointsEntrySubTitle');
+        const maxEl = document.getElementById('pointsEntryMaxDisplay');
+        const inputEl = document.getElementById('pointsEntryInput');
+
+        if (nameEl) nameEl.textContent = fullName;
+        if (subEl) subEl.textContent = title;
+        if (maxEl) maxEl.textContent = `/ ${maxPoints}`;
+
+        if (inputEl) {
+          inputEl.max = maxPoints;
+          const initialVal = (currentScore !== '' && currentScore !== null && currentScore !== undefined)
+            ? currentScore
+            : maxPoints;
+          inputEl.value = initialVal;
+        }
+
+        const modal = document.getElementById('pointsEntryModal');
+        if (modal) modal.classList.add('active');
+
+        setTimeout(() => {
+          if (inputEl) {
+            inputEl.focus();
+            inputEl.select();
+          }
+        }, 50);
+      }
+
+      confirmPointsEntry() {
+        if (!this.pointsEntryContext) return;
+        const { studentName, context, colId } = this.pointsEntryContext;
+        const inputEl = document.getElementById('pointsEntryInput');
+        const rawVal = inputEl ? inputEl.value.trim() : '';
+        const scoreVal = (rawVal === '') ? '' : Number(rawVal);
+
+        if (context === 'live') {
+          if (!this.activeGradeSession) this.activeGradeSession = {};
+          if (!this.activeGradeSession.scores) this.activeGradeSession.scores = {};
+          this.activeGradeSession.scores[studentName] = scoreVal;
+          this.render();
+        } else if (context === 'draft') {
+          if (!this.draftGradeColumn) this.draftGradeColumn = {};
+          if (!this.draftGradeColumn.grades) this.draftGradeColumn.grades = {};
+          this.draftGradeColumn.grades[studentName] = scoreVal;
+          this.renderGradesTable();
+        } else if (context === 'saved') {
+          const currentClass = this.getCurrentClass();
+          if (currentClass && colId) {
+            const cols = this.getClassGradeColumns(currentClass);
+            const col = cols.find(g => g.id === colId);
+            if (col) {
+              if (!col.grades) col.grades = {};
+              col.grades[studentName] = scoreVal;
+              this.setClassGradeColumns(cols, currentClass);
+              this.saveData();
+              this.renderGradesTable();
+            }
+          }
+        } else if (context === 'autofill_addGrade') {
+          if (!this.autoFillState) this.autoFillState = {};
+          if (!this.autoFillState.addGrade) this.autoFillState.addGrade = {};
+          this.autoFillState.addGrade.points = (scoreVal !== '') ? scoreVal : null;
+          this.renderModalAutoFillControls('addGrade');
+        } else if (context === 'autofill_startSession') {
+          if (!this.autoFillState) this.autoFillState = {};
+          if (!this.autoFillState.startSession) this.autoFillState.startSession = {};
+          this.autoFillState.startSession.points = (scoreVal !== '') ? scoreVal : null;
+          this.renderModalAutoFillControls('startSession');
+        }
+
+        this.closePointsEntryModal();
+      }
+
+      removePointsEntryScore() {
+        if (!this.pointsEntryContext) return;
+        const { studentName, context, colId } = this.pointsEntryContext;
+
+        if (context === 'live') {
+          if (!this.activeGradeSession) this.activeGradeSession = {};
+          if (!this.activeGradeSession.scores) this.activeGradeSession.scores = {};
+          this.activeGradeSession.scores[studentName] = '';
+          this.render();
+        } else if (context === 'draft') {
+          if (!this.draftGradeColumn) this.draftGradeColumn = {};
+          if (!this.draftGradeColumn.grades) this.draftGradeColumn.grades = {};
+          this.draftGradeColumn.grades[studentName] = '';
+          this.renderGradesTable();
+        } else if (context === 'saved') {
+          const currentClass = this.getCurrentClass();
+          if (currentClass && colId) {
+            const cols = this.getClassGradeColumns(currentClass);
+            const col = cols.find(g => g.id === colId);
+            if (col) {
+              if (!col.grades) col.grades = {};
+              col.grades[studentName] = '';
+              this.setClassGradeColumns(cols, currentClass);
+              this.saveData();
+              this.renderGradesTable();
+            }
+          }
+        } else if (context === 'autofill_addGrade') {
+          if (!this.autoFillState) this.autoFillState = {};
+          if (!this.autoFillState.addGrade) this.autoFillState.addGrade = {};
+          this.autoFillState.addGrade.points = null;
+          this.renderModalAutoFillControls('addGrade');
+        } else if (context === 'autofill_startSession') {
+          if (!this.autoFillState) this.autoFillState = {};
+          if (!this.autoFillState.startSession) this.autoFillState.startSession = {};
+          this.autoFillState.startSession.points = null;
+          this.renderModalAutoFillControls('startSession');
+        }
+
+        this.closePointsEntryModal();
+      }
+
+      closePointsEntryModal() {
+        this.pointsEntryContext = null;
+        const modal = document.getElementById('pointsEntryModal');
+        if (modal) modal.classList.remove('active');
+      }
+
+      recordLivePointsScore(studentName, value) {
+        if (!this.isGradeScoringActive || !this.activeGradeSession) return;
+        if (!studentName) return;
+
+        if (!this.activeGradeSession.scores) {
+          this.activeGradeSession.scores = {};
+        }
+
+        const trimmed = String(value).trim();
+        this.activeGradeSession.scores[studentName] = (trimmed === '') ? '' : Number(trimmed);
+      }
+
       recordLiveGradeScore(studentName, action) {
         if (!this.isGradeScoringActive || !this.activeGradeSession) return;
         if (!studentName) return;
@@ -1271,8 +2209,10 @@ class SeatingChartApp {
         const currentScore = this.activeGradeSession.scores[studentName] || '';
         let nextScore = '';
 
-        if (action === 'plus') {
-          if (currentScore === 'check') {
+        if (['4', '3', '2', '1'].includes(String(action))) {
+          nextScore = (String(currentScore) === String(action)) ? '' : String(action);
+        } else if (action === 'plus') {
+          if (currentScore === 'check' || currentScore === 'plus') {
             nextScore = '';
           } else {
             nextScore = 'check';
@@ -1293,9 +2233,11 @@ class SeatingChartApp {
 
       deleteGradeColumn(gradeId) {
         const currentClass = this.getCurrentClass();
-        if (!currentClass || !Array.isArray(currentClass.gradeColumns)) return;
+        if (!currentClass) return;
 
-        currentClass.gradeColumns = currentClass.gradeColumns.filter(g => g.id !== gradeId);
+        let cols = this.getClassGradeColumns(currentClass);
+        cols = cols.filter(g => g.id !== gradeId);
+        this.setClassGradeColumns(cols, currentClass);
         this.saveData();
         this.renderGradesTable();
       }
@@ -1303,9 +2245,9 @@ class SeatingChartApp {
       moveGradeColumn(gradeId, direction) {
         if (!this.isEditMode) return;
         const currentClass = this.getCurrentClass();
-        if (!currentClass || !Array.isArray(currentClass.gradeColumns)) return;
+        if (!currentClass) return;
 
-        const cols = currentClass.gradeColumns;
+        const cols = this.getClassGradeColumns(currentClass);
         const index = cols.findIndex(g => g.id === gradeId);
         if (index === -1) return;
 
@@ -1316,6 +2258,7 @@ class SeatingChartApp {
         cols[index] = cols[targetIndex];
         cols[targetIndex] = temp;
 
+        this.setClassGradeColumns(cols, currentClass);
         this.saveData();
         this.renderGradesTable();
       }
@@ -1361,14 +2304,15 @@ class SeatingChartApp {
         if (fromIndex === targetIndex || fromIndex === null || targetIndex === undefined) return;
 
         const currentClass = this.getCurrentClass();
-        if (!currentClass || !Array.isArray(currentClass.gradeColumns)) return;
+        if (!currentClass) return;
 
-        const cols = currentClass.gradeColumns;
+        const cols = this.getClassGradeColumns(currentClass);
         if (fromIndex < 0 || fromIndex >= cols.length || targetIndex < 0 || targetIndex >= cols.length) return;
 
         const [movedCol] = cols.splice(fromIndex, 1);
         cols.splice(targetIndex, 0, movedCol);
 
+        this.setClassGradeColumns(cols, currentClass);
         this.saveData();
         this.renderGradesTable();
       }
@@ -1376,23 +2320,40 @@ class SeatingChartApp {
       cycleStudentGrade(currentClass, gradeId, studentName) {
         if (!this.isEditMode) return;
         if (!currentClass || !gradeId || !studentName) return;
-        if (!Array.isArray(currentClass.gradeColumns)) {
-          currentClass.gradeColumns = this.getDefaultGradeColumns();
-        }
 
-        const col = currentClass.gradeColumns.find(g => g.id === gradeId);
+        const cols = this.getClassGradeColumns(currentClass);
+        const col = cols.find(g => g.id === gradeId);
         if (!col) return;
 
         if (!col.grades) col.grades = {};
         const currentGrade = col.grades[studentName] !== undefined ? col.grades[studentName] : null;
 
-        let nextGrade = 'check';
-        if (currentGrade === 'check') nextGrade = 'minus';
-        else if (currentGrade === 'minus') nextGrade = 'x';
-        else if (currentGrade === 'x') nextGrade = '';
-        else nextGrade = 'check';
+        const isPoints = (col.gradingStyle === 'points') || (!col.gradingStyle && col.maxPoints !== undefined);
+        if (isPoints) {
+          this.openPointsEntryModal(studentName, 'saved', gradeId);
+          return;
+        }
+
+        const isStandards = (col.gradingStyle === 'standards') ||
+          ['4', '3', '2', '1'].includes(String(currentGrade)) ||
+          (!col.gradingStyle && this.getGradingStyle(currentClass) === 'standards');
+
+        let nextGrade = '';
+        if (isStandards) {
+          if (String(currentGrade) === '4') nextGrade = '3';
+          else if (String(currentGrade) === '3') nextGrade = '2';
+          else if (String(currentGrade) === '2') nextGrade = '1';
+          else if (String(currentGrade) === '1') nextGrade = '';
+          else nextGrade = '4';
+        } else {
+          if (currentGrade === 'check' || currentGrade === 'plus') nextGrade = 'minus';
+          else if (currentGrade === 'minus') nextGrade = 'x';
+          else if (currentGrade === 'x') nextGrade = '';
+          else nextGrade = 'check';
+        }
 
         col.grades[studentName] = nextGrade;
+        this.setClassGradeColumns(cols, currentClass);
         this.saveData();
         this.renderGradesTable();
       }
@@ -1427,6 +2388,15 @@ class SeatingChartApp {
         return `(${presentCount}/${dates.length})`;
       }
 
+      toggleGradesAttendanceIndicators() {
+        this.showGradesAttendanceIndicators = (this.showGradesAttendanceIndicators === false) ? true : false;
+        const btn = document.getElementById('btnToggleGradesAttendance');
+        if (btn) {
+          btn.classList.toggle('active', this.showGradesAttendanceIndicators);
+        }
+        this.renderGradesTable();
+      }
+
       renderGradesTable() {
         const table = document.getElementById('gradesTable');
         if (!table) return;
@@ -1437,12 +2407,15 @@ class SeatingChartApp {
           return;
         }
 
-        if (!Array.isArray(currentClass.gradeColumns)) {
-          currentClass.gradeColumns = this.getDefaultGradeColumns();
+        this.renderGradeSubjectDropdown();
+
+        const btnToggle = document.getElementById('btnToggleGradesAttendance');
+        if (btnToggle) {
+          btnToggle.classList.toggle('active', this.showGradesAttendanceIndicators !== false);
         }
 
         const classList = currentClass.classList || [];
-        const gradeCols = currentClass.gradeColumns;
+        const gradeCols = this.getClassGradeColumns(currentClass);
         const isEdit = this.isEditMode;
 
         const displayGradeCols = [...gradeCols];
@@ -1500,29 +2473,94 @@ class SeatingChartApp {
               ? `${profile.firstName} ${profile.lastName}`
               : (profile.firstName || student);
 
-            const showGradesRatio = currentClass ? (currentClass.showGradesAttendanceRatio !== false) : true;
+            const showGradesRatio = (this.showGradesAttendanceIndicators !== false) && (currentClass ? (currentClass.showGradesAttendanceRatio !== false) : true);
             const ratioText = showGradesRatio ? this.getStudentAttendanceRatio(currentClass, student) : '';
-            const ratioHTML = showGradesRatio ? `<span style="font-size: 0.8rem; font-weight: 700; color: var(--primary); background: #e0e7ff; padding: 2px 6px; border-radius: 10px; margin-left: 8px;">${ratioText}</span>` : '';
+            const ratioHTML = showGradesRatio ? `<span style="font-size: 0.8rem; font-weight: 700; color: var(--primary); background: #e0e7ff; padding: 2px 6px; border-radius: 10px;">${ratioText}</span>` : '';
             let gradeCellsHTML = '';
 
             displayGradeCols.forEach(col => {
               const gradeVal = (col.grades && col.grades[student] !== undefined) ? col.grades[student] : '';
+              const attRecord = this.getAttendanceRecordForDate(currentClass, col.date);
+              const attStatus = attRecord ? (attRecord.statuses && attRecord.statuses[student]) : null;
+              let attIndicatorHTML = '';
+              let absentBgStyle = '';
+
+              if (this.showGradesAttendanceIndicators !== false && attStatus) {
+                if (attStatus === 'absent') {
+                  attIndicatorHTML = `<span class="cell-att-indicator cell-att-absent" title="Absent on ${col.date}"></span>`;
+                  absentBgStyle = 'background-color: #fef2f2 !important; ';
+                } else if (attStatus === 'present') {
+                  attIndicatorHTML = `<span class="cell-att-indicator cell-att-present" title="Present on ${col.date}"></span>`;
+                }
+              }
 
               if (col.isDraft) {
-                const isCheck = (gradeVal === 'check' || gradeVal === 'plus');
-                const isMinus = (gradeVal === 'minus');
-                const isX = (gradeVal === 'x');
+                const isStandards = (col.gradingStyle === 'standards') || (!col.gradingStyle && this.getGradingStyle(currentClass) === 'standards');
+                const isPoints = (col.gradingStyle === 'points') || (!col.gradingStyle && this.getGradingStyle(currentClass) === 'points');
+                if (isPoints) {
+                  const maxPts = col.maxPoints || 10;
+                  let cellContent = '';
+                  if (gradeVal !== '' && gradeVal !== null && gradeVal !== undefined && !isNaN(Number(gradeVal))) {
+                    const earned = Number(gradeVal);
+                    const pct = Math.round((earned / maxPts) * 100);
+                    cellContent = `<button type="button" class="points-badge-btn points-badge-scored" onclick="event.stopPropagation(); app.openPointsEntryModal('${this.escapeQuotes(student)}', 'draft')">${earned}/${maxPts} <span class="points-badge-pct">(${pct}%)</span></button>`;
+                  } else {
+                    cellContent = `<button type="button" class="points-badge-btn points-badge-unscored" onclick="event.stopPropagation(); app.openPointsEntryModal('${this.escapeQuotes(student)}', 'draft')">? / ${maxPts}</button>`;
+                  }
+                  gradeCellsHTML += `<td style="background-color: #f8fafc; border: 1px solid #cbd5e1; text-align: center; padding: 6px 4px; border-left: 2px dashed #cbd5e1; border-right: 2px dashed #cbd5e1; position: relative; ${absentBgStyle}">
+                    ${attIndicatorHTML}
+                    ${cellContent}
+                  </td>`;
+                } else if (isStandards) {
+                  const is4 = (String(gradeVal) === '4');
+                  const is3 = (String(gradeVal) === '3');
+                  const is2 = (String(gradeVal) === '2');
+                  const is1 = (String(gradeVal) === '1');
+                  gradeCellsHTML += `<td style="background-color: #f8fafc; border: 1px solid #cbd5e1; text-align: center; padding: 6px 4px; border-left: 2px dashed #cbd5e1; border-right: 2px dashed #cbd5e1; position: relative; ${absentBgStyle}">
+                    ${attIndicatorHTML}
+                    <div class="standards-score-controls" style="justify-content: center; display: inline-flex; gap: 3px;">
+                      <button type="button" class="standards-btn standards-btn-4 ${is4 ? 'active-4' : ''}" onclick="event.stopPropagation(); app.recordDraftGradeScore('${this.escapeQuotes(student)}', '4')" title="4 - Advanced (Yellow)">4</button>
+                      <button type="button" class="standards-btn standards-btn-3 ${is3 ? 'active-3' : ''}" onclick="event.stopPropagation(); app.recordDraftGradeScore('${this.escapeQuotes(student)}', '3')" title="3 - Proficient (Green)">3</button>
+                      <button type="button" class="standards-btn standards-btn-2 ${is2 ? 'active-2' : ''}" onclick="event.stopPropagation(); app.recordDraftGradeScore('${this.escapeQuotes(student)}', '2')" title="2 - Approaching (Orange)">2</button>
+                      <button type="button" class="standards-btn standards-btn-1 ${is1 ? 'active-1' : ''}" onclick="event.stopPropagation(); app.recordDraftGradeScore('${this.escapeQuotes(student)}', '1')" title="1 - Beginning (Red)">1</button>
+                    </div>
+                  </td>`;
+                } else {
+                  const isCheck = (gradeVal === 'check' || gradeVal === 'plus');
+                  const isMinus = (gradeVal === 'minus');
+                  const isX = (gradeVal === 'x');
 
-                gradeCellsHTML += `<td style="background-color: #f8fafc; border: 1px solid #cbd5e1; text-align: center; padding: 6px 4px; border-left: 2px dashed #cbd5e1; border-right: 2px dashed #cbd5e1;">
-                  <div class="grade-score-controls" style="justify-content: center;">
-                    <button class="grade-score-btn grade-btn-plus ${isCheck ? 'active-check' : ''}" onclick="event.stopPropagation(); app.recordDraftGradeScore('${this.escapeQuotes(student)}', 'plus')" title="Exceeds / Pass (+)">${isCheck ? '+' : '+'}</button>
-                    <button class="grade-score-btn grade-btn-minus ${isMinus ? 'active-minus' : (isX ? 'active-x' : '')}" onclick="event.stopPropagation(); app.recordDraftGradeScore('${this.escapeQuotes(student)}', 'minus')" title="Click for Minus (−), double-click for X (✕)">${isX ? '✕' : '−'}</button>
-                  </div>
-                </td>`;
+                  gradeCellsHTML += `<td style="background-color: #f8fafc; border: 1px solid #cbd5e1; text-align: center; padding: 6px 4px; border-left: 2px dashed #cbd5e1; border-right: 2px dashed #cbd5e1; position: relative; ${absentBgStyle}">
+                    ${attIndicatorHTML}
+                    <div class="grade-score-controls" style="justify-content: center;">
+                      <button class="grade-score-btn grade-btn-plus ${isCheck ? 'active-check' : ''}" onclick="event.stopPropagation(); app.recordDraftGradeScore('${this.escapeQuotes(student)}', 'plus')" title="Exceeds / Pass (+)">${isCheck ? '+' : '+'}</button>
+                      <button class="grade-score-btn grade-btn-minus ${isMinus ? 'active-minus' : (isX ? 'active-x' : '')}" onclick="event.stopPropagation(); app.recordDraftGradeScore('${this.escapeQuotes(student)}', 'minus')" title="Click for Minus (−), double-click for X (✕)">${isX ? '✕' : '−'}</button>
+                    </div>
+                  </td>`;
+                }
               } else {
                 const theme = this.getCategoryTheme(col.title);
+                const isPoints = (col.gradingStyle === 'points') || (!col.gradingStyle && col.maxPoints !== undefined);
                 let symbolHTML = '';
-                if (gradeVal === 'check' || gradeVal === 'plus') {
+
+                if (isPoints) {
+                  if (gradeVal !== '' && gradeVal !== null && gradeVal !== undefined && !isNaN(Number(gradeVal))) {
+                    const earned = Number(gradeVal);
+                    const maxPts = Number(col.maxPoints || 10);
+                    const pct = Math.round((earned / maxPts) * 100);
+                    symbolHTML = `<span style="font-weight: 700; font-size: 0.88rem; color: #0f172a; white-space: nowrap;">${earned}/${maxPts} <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">(${pct}%)</span></span>`;
+                  } else {
+                    symbolHTML = `<span style="color: #cbd5e1; font-weight: bold;">—</span>`;
+                  }
+                } else if (String(gradeVal) === '4') {
+                  symbolHTML = `<span class="standards-grade-badge grade-standards-4" title="4 - Advanced">4</span>`;
+                } else if (String(gradeVal) === '3') {
+                  symbolHTML = `<span class="standards-grade-badge grade-standards-3" title="3 - Proficient">3</span>`;
+                } else if (String(gradeVal) === '2') {
+                  symbolHTML = `<span class="standards-grade-badge grade-standards-2" title="2 - Approaching">2</span>`;
+                } else if (String(gradeVal) === '1') {
+                  symbolHTML = `<span class="standards-grade-badge grade-standards-1" title="1 - Beginning">1</span>`;
+                } else if (gradeVal === 'check' || gradeVal === 'plus') {
                   symbolHTML = `<span class="grade-status-plus" title="Exceeds / Pass (+)">+</span>`;
                 } else if (gradeVal === 'minus') {
                   symbolHTML = `<span class="grade-status-minus" title="Needs Work / Minus (−)">−</span>`;
@@ -1534,15 +2572,16 @@ class SeatingChartApp {
 
                 const cellClass = isEdit ? 'grade-cell-interactive' : 'grade-cell-readonly';
                 const cellOnClick = isEdit ? `onclick="app.cycleStudentGrade(app.getCurrentClass(), '${col.id}', '${app.escapeQuotes(student)}')"` : '';
-                const cellTitle = isEdit ? 'Click to change grade (+, −, ✕, blank)' : '';
+                const cellTitle = isEdit ? (isPoints ? 'Click to edit points' : 'Click to change grade') : '';
 
-                gradeCellsHTML += `<td class="${cellClass}" style="background-color: ${theme.bgCell}; border: 1px solid ${theme.border}; cursor: ${isEdit ? 'pointer' : 'default'};" ${cellOnClick} title="${cellTitle}">
+                gradeCellsHTML += `<td class="${cellClass}" style="background-color: ${theme.bgCell}; border: 1px solid ${theme.border}; cursor: ${isEdit ? 'pointer' : 'default'}; position: relative; ${absentBgStyle}" ${cellOnClick} title="${cellTitle}">
+                  ${attIndicatorHTML}
                   ${symbolHTML}
                 </td>`;
               }
             });
 
-            html += `<tr><td><div style="display: flex; justify-content: space-between; align-items: center;"><span style="font-weight: 600; color: #0f172a;">${this.escapeHtml(fullName)}</span>${ratioHTML}</div></td>${gradeCellsHTML}</tr>`;
+            html += `<tr><td><div style="display: flex; align-items: center; gap: 8px;"><span style="font-weight: 600; color: #0f172a;">${this.escapeHtml(fullName)}</span>${ratioHTML}</div></td>${gradeCellsHTML}</tr>`;
           });
         }
         html += '</tbody>';
@@ -1654,6 +2693,8 @@ class SeatingChartApp {
           layout: 'rows',
           rowsCount: 4,
           rowAlignment: 'center',
+          showFirstName: true,
+          showLastName: false,
           showFaces: true,
           rows: Array.from({ length: 4 }, () => []),
           circle: [],
@@ -1693,26 +2734,227 @@ class SeatingChartApp {
         this.closeModal('editClassesModal');
       }
 
+      populateSettingsSubjectDropdown() {
+        const select = document.getElementById('settingsSubjectSelect');
+        if (!select) return;
+        select.innerHTML = '';
+        if (!Array.isArray(this.subjects) || this.subjects.length === 0) {
+          this.subjects = [
+            {
+              id: 'subj_music',
+              name: 'Music',
+              categories: ['Singing', 'Instruments', 'Movement', 'Culture', 'Theory', 'Effort']
+            }
+          ];
+        }
+        const currentClass = this.getCurrentClass();
+        const currentSubjId = (currentClass && currentClass.subjectId) ? currentClass.subjectId : this.subjects[0].id;
+
+        this.subjects.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = s.name;
+          if (s.id === currentSubjId) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.value = currentSubjId;
+      }
+
+      openEditSubjectsModal() {
+        if (!Array.isArray(this.subjects) || this.subjects.length === 0) {
+          this.subjects = [
+            {
+              id: 'subj_music',
+              name: 'Music',
+              categories: ['Singing', 'Instruments', 'Movement', 'Culture', 'Theory', 'Effort']
+            }
+          ];
+        }
+        this.tempSubjects = JSON.parse(JSON.stringify(this.subjects));
+        this.tempSubjects.forEach((s, idx) => {
+          if (!Array.isArray(s.categories)) s.categories = [];
+          if (idx === 0) s.isExpanded = true;
+        });
+
+        const input = document.getElementById('modalAddSubjectName');
+        if (input) input.value = '';
+        this.renderModalSubjectsList();
+        const modal = document.getElementById('editSubjectsModal');
+        if (modal) modal.classList.add('active');
+      }
+
+      renderModalSubjectsList() {
+        const container = document.getElementById('modalSubjectsList');
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (!this.tempSubjects || this.tempSubjects.length === 0) {
+          container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem; padding: 8px; text-align: center;">No subjects available. Add a subject above.</div>';
+          return;
+        }
+
+        this.tempSubjects.forEach((s, sIdx) => {
+          if (!Array.isArray(s.categories)) s.categories = [];
+          const card = document.createElement('div');
+          card.style.cssText = 'background: white; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);';
+
+          const catCount = s.categories.length;
+          const isExpanded = s.isExpanded !== false;
+
+          let categoriesHTML = '';
+          if (s.categories.length === 0) {
+            categoriesHTML = '<div style="font-size: 0.82rem; color: #94a3b8; font-style: italic; margin-bottom: 6px;">No subcategories yet. Add one below.</div>';
+          } else {
+            categoriesHTML = '<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">';
+            s.categories.forEach((cat, cIdx) => {
+              categoriesHTML += `
+                <div style="display: inline-flex; align-items: center; background: white; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 2px 6px; gap: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+                  <input type="text" value="${this.escapeHtml(cat)}" style="border: none; padding: 2px 4px; font-size: 0.85rem; font-weight: 700; width: 105px; outline: none; background: transparent;" oninput="app.tempSubjects[${sIdx}].categories[${cIdx}] = this.value">
+                  <button type="button" onclick="app.deleteModalCategory(${sIdx}, ${cIdx})" style="background: transparent; border: none; color: #ef4444; font-size: 1rem; line-height: 1; cursor: pointer; font-weight: bold; padding: 0 2px;" title="Remove Category">&times;</button>
+                </div>
+              `;
+            });
+            categoriesHTML += '</div>';
+          }
+
+          card.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                <span style="font-weight: 700; font-size: 0.85rem; color: var(--primary);">Subject:</span>
+                <input type="text" value="${this.escapeHtml(s.name)}" style="flex: 1; font-weight: 700; font-size: 0.95rem; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-color);" oninput="app.tempSubjects[${sIdx}].name = this.value">
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button type="button" class="btn btn-outline" onclick="app.toggleSubjectSublevel(${sIdx})" style="font-size: 0.8rem; font-weight: 600; padding: 5px 10px; background: #f8fafc;">
+                  ${isExpanded ? 'Subcategories ▴' : `Subcategories (${catCount}) ▾`}
+                </button>
+                <button type="button" class="btn" style="background: var(--danger); color: white; padding: 5px 10px; font-size: 0.9rem;" onclick="app.deleteModalSubject(${sIdx})" title="Delete Subject">&times;</button>
+              </div>
+            </div>
+
+            ${isExpanded ? `
+              <div style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 10px; margin-top: 4px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <span style="font-weight: 700; font-size: 0.8rem; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">Assessment Subcategories:</span>
+                </div>
+                ${categoriesHTML}
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <input type="text" id="modalAddCategory_${sIdx}" placeholder="New category (e.g. Drawing, Pottery)..." style="flex: 1; padding: 5px 10px; font-size: 0.85rem; background: white; border-radius: 6px; border: 1px solid var(--border-color);" onkeydown="if(event.key === 'Enter') app.addCategoryFromModal(${sIdx})">
+                  <button type="button" class="btn btn-secondary" onclick="app.addCategoryFromModal(${sIdx})" style="font-size: 0.82rem; padding: 5px 12px; font-weight: 700;">+ Add</button>
+                </div>
+              </div>
+            ` : ''}
+          `;
+
+          container.appendChild(card);
+        });
+      }
+
+      toggleSubjectSublevel(sIdx) {
+        if (!this.tempSubjects[sIdx]) return;
+        this.tempSubjects[sIdx].isExpanded = !this.tempSubjects[sIdx].isExpanded;
+        this.renderModalSubjectsList();
+      }
+
+      addCategoryFromModal(sIdx) {
+        const input = document.getElementById(`modalAddCategory_${sIdx}`);
+        if (!input) return;
+        const name = input.value.trim();
+        if (!name) {
+          alert('Please enter a category name.');
+          return;
+        }
+        if (!Array.isArray(this.tempSubjects[sIdx].categories)) {
+          this.tempSubjects[sIdx].categories = [];
+        }
+        this.tempSubjects[sIdx].categories.push(name);
+        input.value = '';
+        this.renderModalSubjectsList();
+      }
+
+      deleteModalCategory(sIdx, cIdx) {
+        if (!this.tempSubjects[sIdx] || !Array.isArray(this.tempSubjects[sIdx].categories)) return;
+        this.tempSubjects[sIdx].categories.splice(cIdx, 1);
+        this.renderModalSubjectsList();
+      }
+
+      addSubjectFromModal() {
+        const input = document.getElementById('modalAddSubjectName');
+        if (!input) return;
+        const name = input.value.trim();
+        if (!name) {
+          alert('Please enter a subject name.');
+          return;
+        }
+        const newSubject = {
+          id: 'subj_' + Date.now(),
+          name: name,
+          categories: [],
+          isExpanded: true
+        };
+        this.tempSubjects.push(newSubject);
+        input.value = '';
+        this.renderModalSubjectsList();
+      }
+
+      deleteModalSubject(index) {
+        if (this.tempSubjects.length <= 1) {
+          alert('You must have at least one subject.');
+          return;
+        }
+        const subjName = this.tempSubjects[index] ? this.tempSubjects[index].name : 'this subject';
+        if (confirm(`Are you sure you want to delete "${subjName}"?`)) {
+          this.tempSubjects.splice(index, 1);
+          this.renderModalSubjectsList();
+        }
+      }
+
+      saveEditedSubjects() {
+        this.tempSubjects = this.tempSubjects.filter(s => s && s.name && s.name.trim().length > 0);
+        this.tempSubjects.forEach(s => {
+          if (Array.isArray(s.categories)) {
+            s.categories = s.categories.map(c => typeof c === 'string' ? c.trim() : '').filter(Boolean);
+          } else {
+            s.categories = [];
+          }
+        });
+
+        if (this.tempSubjects.length === 0) {
+          this.tempSubjects = [
+            {
+              id: 'subj_music',
+              name: 'Music',
+              categories: ['Singing', 'Instruments', 'Movement', 'Culture', 'Theory', 'Effort']
+            }
+          ];
+        }
+
+        this.subjects = JSON.parse(JSON.stringify(this.tempSubjects));
+        this.saveData();
+        this.closeModal('editSubjectsModal');
+        this.populateSettingsSubjectDropdown();
+      }
+
       setLayout(layoutType) {
         const currentClass = this.getCurrentClass();
         if (!currentClass) return;
 
         const all = this.getAllClassStudents(currentClass);
+        const sortedByLast = this.sortStudentsByName(all, 'last');
 
         if (!currentClass.layoutsData) currentClass.layoutsData = {};
 
         if (layoutType === 'circle' && (!currentClass.circle || currentClass.circle.length === 0)) {
-          currentClass.circle = [...all];
+          currentClass.circle = [...sortedByLast];
         } else if (layoutType === 'lines') {
           const lineCount = currentClass.linesCount || 4;
           if (!currentClass.lines || !Array.isArray(currentClass.lines) || currentClass.lines.length !== lineCount || currentClass.lines.flat().length === 0) {
-            currentClass.lines = this.autoBalanceGroups(all, lineCount);
+            currentClass.lines = this.autoBalanceGroups(all, lineCount, 'last');
           }
         } else if (['half', 'third', 'fourth', 'fifth', 'sixth'].includes(layoutType)) {
           const numGroups = layoutType === 'half' ? 2 : layoutType === 'third' ? 3 : layoutType === 'fourth' ? 4 : layoutType === 'fifth' ? 5 : 6;
           const gArr = currentClass.layoutsData[layoutType];
           if (!gArr || !Array.isArray(gArr) || gArr.length < numGroups || gArr.flat().length === 0) {
-            currentClass.layoutsData[layoutType] = this.autoBalanceGroups(all, numGroups);
+            currentClass.layoutsData[layoutType] = this.autoBalanceGroups(all, numGroups, 'last');
           }
         }
 
@@ -1767,42 +3009,75 @@ class SeatingChartApp {
       }
 
       addBulkStudents() {
-        const text = document.getElementById('bulkStudentsInput').value;
+        const inputEl = document.getElementById('bulkStudentsInput');
+        if (!inputEl) return;
+        const text = inputEl.value;
         if (!text.trim()) return;
 
-        const names = text.split(/[\n,]+/)
-                          .map(n => n.trim())
-                          .filter(n => n.length > 0);
+        const rawList = text.split(/[\n,;]+/);
+        const parsedNames = [];
+
+        rawList.forEach(item => {
+          let clean = item.trim();
+          // Strip leading numbering or bullets like "1.", "1)", "-", "*", "•"
+          clean = clean.replace(/^[\s\d\.\)\-\*•]+/, '').trim();
+          if (clean.length > 0) {
+            parsedNames.push(clean);
+          }
+        });
 
         const currentClass = this.getCurrentClass();
-        if (currentClass && names.length > 0) {
+        if (currentClass && parsedNames.length > 0) {
           if (!currentClass.classList) currentClass.classList = [];
-          names.forEach(n => {
-            if (!currentClass.classList.includes(n)) {
-              currentClass.classList.push(n);
+          if (!currentClass.studentProfiles) currentClass.studentProfiles = {};
+
+          const addedKeys = [];
+
+          parsedNames.forEach(fullName => {
+            const parts = fullName.split(/\s+/);
+            const firstName = parts[0] || fullName;
+            const lastName = parts.slice(1).join(' ') || '';
+            const key = firstName;
+
+            currentClass.studentProfiles[key] = {
+              firstName: firstName,
+              lastName: lastName
+            };
+            if (fullName !== key) {
+              currentClass.studentProfiles[fullName] = {
+                firstName: firstName,
+                lastName: lastName
+              };
+            }
+
+            if (!currentClass.classList.includes(key)) {
+              currentClass.classList.push(key);
+              addedKeys.push(key);
             }
           });
 
-          if (!currentClass.rows) currentClass.rows = [[]];
-          if (currentClass.rows.length === 0) currentClass.rows.push([]);
-          currentClass.rows[0].push(...names);
+          if (addedKeys.length > 0) {
+            if (!currentClass.rows) currentClass.rows = [[]];
+            if (currentClass.rows.length === 0) currentClass.rows.push([]);
+            currentClass.rows[0].push(...addedKeys);
 
-          if (!currentClass.circle) currentClass.circle = [];
-          currentClass.circle.push(...names);
+            if (!currentClass.circle) currentClass.circle = [];
+            currentClass.circle.push(...addedKeys);
 
-          if (!Array.isArray(currentClass.lines) || currentClass.lines.length < 4) {
-            currentClass.lines = Array.from({ length: 4 }, () => []);
+            if (!Array.isArray(currentClass.lines) || currentClass.lines.length < 4) {
+              currentClass.lines = Array.from({ length: 4 }, () => []);
+            }
+            currentClass.lines[0].push(...addedKeys);
+
+            if (!currentClass.layoutsData) currentClass.layoutsData = {};
+            ['half', 'third', 'fourth', 'fifth', 'sixth'].forEach((key, idx) => {
+              const count = idx + 2;
+              if (!currentClass.layoutsData[key] || currentClass.layoutsData[key].length === 0) {
+                currentClass.layoutsData[key] = Array.from({ length: count }, () => []);
+              }
+              currentClass.layoutsData[key][0].push(...addedKeys);
+            });
           }
-          currentClass.lines[0].push(...names);
-
-          if (!currentClass.layoutsData) currentClass.layoutsData = {};
-          ['half', 'third', 'fourth', 'fifth', 'sixth'].forEach((key, idx) => {
-            const count = idx + 2;
-            if (!currentClass.layoutsData[key] || currentClass.layoutsData[key].length === 0) {
-              currentClass.layoutsData[key] = Array.from({ length: count }, () => []);
-            }
-            currentClass.layoutsData[key][0].push(...names);
-          });
 
           this.saveData();
           this.render();
@@ -2941,7 +4216,10 @@ class SeatingChartApp {
         const rawClassName = currentClass.name || 'Class';
         const safeClassName = rawClassName.replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_');
         const classList = currentClass.classList || [];
-        const gradeCols = Array.isArray(currentClass.gradeColumns) ? currentClass.gradeColumns : this.getDefaultGradeColumns();
+        const gradeCols = this.getClassGradeColumns(currentClass);
+        const subjId = this.getClassSubjectId(currentClass);
+        const subjObj = this.subjects.find(s => s.id === subjId);
+        const subjName = subjObj ? subjObj.name : 'Music';
 
         const minWidth = Math.max(900, 260 + gradeCols.length * 90);
 
@@ -2951,7 +4229,7 @@ class SeatingChartApp {
 
         const titleEl = document.createElement('div');
         titleEl.style.cssText = 'font-size: 1.75rem; font-weight: 800; color: #0f172a; text-align: center; margin-bottom: 24px; letter-spacing: 0.5px;';
-        titleEl.textContent = `${rawClassName} — Grades Register`;
+        titleEl.textContent = `${rawClassName} — Grades Register (${subjName})`;
         wrapper.appendChild(titleEl);
 
         const exportTable = document.createElement('table');
@@ -2961,6 +4239,7 @@ class SeatingChartApp {
         theadHTML += '<th style="padding: 12px 16px; border: 1px solid #cbd5e1; font-weight: 700; color: #0f172a; text-align: left; min-width: 220px; background-color: #f1f5f9;">Student Name</th>';
         gradeCols.forEach(col => {
           const theme = this.getCategoryTheme(col.title);
+
           theadHTML += `<th style="padding: 10px 12px; border: 1px solid ${theme.border}; min-width: 80px; background-color: ${theme.bgCell}; vertical-align: middle;">
             <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.25;">
               <span style="font-weight: 800; font-size: 0.85rem; color: ${theme.color}; background: ${theme.bgHeader}; padding: 2px 8px; border-radius: 12px; border: 1px solid ${theme.border};">${this.escapeHtml(col.title || 'Grade')}</span>
@@ -2985,31 +4264,64 @@ class SeatingChartApp {
             gradeCols.forEach(col => {
               const theme = this.getCategoryTheme(col.title);
               const gradeVal = (col.grades && col.grades[student] !== undefined) ? col.grades[student] : '';
+              const attRecord = this.getAttendanceRecordForDate(currentClass, col.date);
+              const attStatus = attRecord ? (attRecord.statuses && attRecord.statuses[student]) : null;
 
-              if (gradeVal === 'check' || gradeVal === 'plus') {
-                gradeCells += `<td style="padding: 8px; border: 1px solid ${theme.border}; background-color: ${theme.bgCell}; vertical-align: middle;">
-                  <span style="color: #10b981; font-weight: 900; font-size: 1.1rem; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #ecfdf5; border: 1px solid #a7f3d0;">+</span>
-                </td>`;
-              } else if (gradeVal === 'minus') {
-                gradeCells += `<td style="padding: 8px; border: 1px solid ${theme.border}; background-color: ${theme.bgCell}; vertical-align: middle;">
-                  <span style="color: #ef4444; font-weight: 900; font-size: 1.2rem; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #fef2f2; border: 1px solid #fecaca;">−</span>
-                </td>`;
-              } else if (gradeVal === 'x') {
-                gradeCells += `<td style="padding: 8px; border: 1px solid ${theme.border}; background-color: ${theme.bgCell}; vertical-align: middle;">
-                  <span style="color: #dc2626; font-weight: 900; font-size: 1rem; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #fef2f2; border: 1px solid #fecaca;">✕</span>
-                </td>`;
-              } else {
-                gradeCells += `<td style="padding: 8px; border: 1px solid ${theme.border}; background-color: ${theme.bgCell}; vertical-align: middle;"></td>`;
+              let attIndicatorHTML = '';
+              let cellBg = theme.bgCell;
+
+              if (this.showGradesAttendanceIndicators !== false && attStatus) {
+                if (attStatus === 'absent') {
+                  attIndicatorHTML = `<span style="position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background-color: #ef4444;"></span>`;
+                  cellBg = '#fef2f2';
+                } else if (attStatus === 'present') {
+                  attIndicatorHTML = `<span style="position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background-color: #10b981;"></span>`;
+                }
               }
+
+              let symbolHTML = '';
+              const isPoints = (col.gradingStyle === 'points') || (!col.gradingStyle && col.maxPoints !== undefined);
+
+              if (isPoints) {
+                if (gradeVal !== '' && gradeVal !== null && gradeVal !== undefined && !isNaN(Number(gradeVal))) {
+                  const earned = Number(gradeVal);
+                  const maxPts = Number(col.maxPoints || 10);
+                  const pct = Math.round((earned / maxPts) * 100);
+                  symbolHTML = `<span style="font-weight: 700; font-size: 0.88rem; color: #0f172a; white-space: nowrap;">${earned}/${maxPts} <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">(${pct}%)</span></span>`;
+                } else {
+                  symbolHTML = `<span style="color: #cbd5e1; font-weight: bold;">—</span>`;
+                }
+              } else if (String(gradeVal) === '4') {
+                symbolHTML = `<span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; font-weight: 900; font-size: 0.95rem; background: #fef08a; color: #854d0e; border: 1px solid #fde047;">4</span>`;
+              } else if (String(gradeVal) === '3') {
+                symbolHTML = `<span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; font-weight: 900; font-size: 0.95rem; background: #bbf7d0; color: #166534; border: 1px solid #86efac;">3</span>`;
+              } else if (String(gradeVal) === '2') {
+                symbolHTML = `<span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; font-weight: 900; font-size: 0.95rem; background: #fed7aa; color: #9a3412; border: 1px solid #fdba74;">2</span>`;
+              } else if (String(gradeVal) === '1') {
+                symbolHTML = `<span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; font-weight: 900; font-size: 0.95rem; background: #fecaca; color: #991b1b; border: 1px solid #fca5a5;">1</span>`;
+              } else if (gradeVal === 'check' || gradeVal === 'plus') {
+                symbolHTML = `<span style="color: #10b981; font-weight: 900; font-size: 1.1rem; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #ecfdf5; border: 1px solid #a7f3d0;">+</span>`;
+              } else if (gradeVal === 'minus') {
+                symbolHTML = `<span style="color: #ef4444; font-weight: 900; font-size: 1.2rem; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #fef2f2; border: 1px solid #fecaca;">−</span>`;
+              } else if (gradeVal === 'x') {
+                symbolHTML = `<span style="color: #dc2626; font-weight: 900; font-size: 1rem; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #fef2f2; border: 1px solid #fecaca;">✕</span>`;
+              } else {
+                symbolHTML = ``;
+              }
+
+              gradeCells += `<td style="padding: 8px; border: 1px solid ${theme.border}; background-color: ${cellBg}; vertical-align: middle; position: relative;">
+                ${attIndicatorHTML}
+                ${symbolHTML}
+              </td>`;
             });
 
-            const showGradesRatio = currentClass ? (currentClass.showGradesAttendanceRatio !== false) : true;
+            const showGradesRatio = (this.showGradesAttendanceIndicators !== false) && (currentClass ? (currentClass.showGradesAttendanceRatio !== false) : true);
             const ratioText = showGradesRatio ? this.getStudentAttendanceRatio(currentClass, student) : '';
-            const ratioHTML = showGradesRatio ? `<span style="font-size: 0.8rem; font-weight: 700; color: #4f46e5; background: #e0e7ff; padding: 2px 6px; border-radius: 10px; margin-left: 8px;">${ratioText}</span>` : '';
+            const ratioHTML = showGradesRatio ? `<span style="font-size: 0.8rem; font-weight: 700; color: #4f46e5; background: #e0e7ff; padding: 2px 6px; border-radius: 10px;">${ratioText}</span>` : '';
             const rowBg = (rIdx % 2 === 1) ? '#ffffff' : '#ffffff';
             tbodyHTML += `<tr style="background-color: ${rowBg};">
               <td style="padding: 10px 14px; border: 1px solid #cbd5e1; font-weight: 600; color: #0f172a; text-align: left; background-color: #ffffff;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 8px;">
                   <span>${this.escapeHtml(fullName)}</span>
                   ${ratioHTML}
                 </div>
@@ -3385,10 +4697,7 @@ class SeatingChartApp {
         const linesSub = document.getElementById('linesSubheader');
 
         const currentClass = this.getCurrentClass();
-        const layoutBar = document.getElementById('layoutBar');
-        const isLayoutBarOpen = layoutBar && layoutBar.classList.contains('open');
-
-        const isEditingMain = currentClass && this.isEditMode && !this.isAttendanceView && !isLayoutBarOpen;
+        const isEditingMain = currentClass && this.isEditMode && (this.currentViewMode === 'chart' || !this.currentViewMode);
 
         if (rowsSub) {
           if (isEditingMain && currentClass.layout === 'rows') {
@@ -3685,6 +4994,242 @@ class SeatingChartApp {
         });
       }
 
+      cycleStudentAttendance(currentClass, dateId, studentName) {
+        if (!this.isEditMode) return;
+        if (!currentClass || !dateId || !studentName) return;
+
+        if (!Array.isArray(currentClass.attendanceDates)) {
+          currentClass.attendanceDates = this.getDefaultAttendanceDates();
+        }
+
+        const dateRecord = currentClass.attendanceDates.find(d => d.id === dateId);
+        if (!dateRecord) return;
+
+        if (!dateRecord.statuses) dateRecord.statuses = {};
+        let currentStatus = dateRecord.statuses[studentName] !== undefined ? dateRecord.statuses[studentName] : null;
+
+        if (currentStatus === null) {
+          // Fallback for legacy sample dates
+          const seedStr = `${currentClass.id}_${studentName}_${dateRecord.date}`;
+          let hash = 0;
+          for (let i = 0; i < seedStr.length; i++) {
+            hash = ((hash << 5) - hash) + seedStr.charCodeAt(i);
+            hash |= 0;
+          }
+          currentStatus = ((Math.abs(hash) % 10) >= 3) ? 'present' : 'absent';
+        }
+
+        let nextStatus = 'present';
+        if (currentStatus === 'present') {
+          nextStatus = 'absent';
+        } else if (currentStatus === 'absent') {
+          nextStatus = 'unplaced';
+        } else {
+          nextStatus = 'present';
+        }
+
+        dateRecord.statuses[studentName] = nextStatus;
+        this.saveData();
+        this.renderAttendanceTable();
+        if (this.currentViewMode === 'grades') {
+          this.renderGradesTable();
+        }
+      }
+
+      openAddAttendanceDateModal() {
+        const currentClass = this.getCurrentClass();
+
+        if (this.isDraftAttendanceActive && this.draftAttendanceDate) {
+          // Complete active draft attendance session!
+          if (currentClass) {
+            if (!Array.isArray(currentClass.attendanceDates)) {
+              currentClass.attendanceDates = this.getDefaultAttendanceDates();
+            }
+            const existingIdx = currentClass.attendanceDates.findIndex(d => 
+              d.id === this.draftAttendanceDate.id || d.date === this.draftAttendanceDate.date
+            );
+            const savedRecord = {
+              id: this.draftAttendanceDate.id || ('date_' + Date.now()),
+              date: this.draftAttendanceDate.date,
+              day: this.draftAttendanceDate.day,
+              timestamp: this.draftAttendanceDate.timestamp || Date.now(),
+              statuses: { ...(this.draftAttendanceDate.statuses || {}) }
+            };
+            if (existingIdx >= 0) {
+              currentClass.attendanceDates[existingIdx] = savedRecord;
+            } else {
+              currentClass.attendanceDates.push(savedRecord);
+            }
+            currentClass.attendanceDates.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+            this.saveData();
+          }
+
+          this.draftAttendanceDate = null;
+          this.isDraftAttendanceActive = false;
+
+          this.updateAddAttendanceButtonUI();
+          this.renderAttendanceTable();
+          if (this.currentViewMode === 'grades') {
+            this.renderGradesTable();
+          }
+          return;
+        }
+
+        const dateToUse = this.addAttSelectedDate || new Date();
+        this.addAttCalendarMonth = dateToUse.getMonth();
+        this.addAttCalendarYear = dateToUse.getFullYear();
+
+        const dateInput = document.getElementById('addAttDateInput');
+        if (dateInput) {
+          const yyyy = dateToUse.getFullYear();
+          const mm = String(dateToUse.getMonth() + 1).padStart(2, '0');
+          const dd = String(dateToUse.getDate()).padStart(2, '0');
+          dateInput.value = `${yyyy}-${mm}-${dd}`;
+        }
+
+        this.renderAddAttCalendarGrid();
+        const modal = document.getElementById('addAttendanceDateModal');
+        if (modal) modal.classList.add('active');
+      }
+
+      changeAddAttCalendarMonth(delta) {
+        this.addAttCalendarMonth += delta;
+        if (this.addAttCalendarMonth > 11) {
+          this.addAttCalendarMonth = 0;
+          this.addAttCalendarYear += 1;
+        } else if (this.addAttCalendarMonth < 0) {
+          this.addAttCalendarMonth = 11;
+          this.addAttCalendarYear -= 1;
+        }
+        this.renderAddAttCalendarGrid();
+      }
+
+      renderAddAttCalendarGrid() {
+        const grid = document.getElementById('addAttCalendarDaysGrid');
+        const monthYearSpan = document.getElementById('addAttCalendarMonthYear');
+        if (!grid) return;
+
+        grid.innerHTML = '';
+
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        if (monthYearSpan) {
+          monthYearSpan.textContent = `${monthNames[this.addAttCalendarMonth]} ${this.addAttCalendarYear}`;
+        }
+
+        const firstDayIndex = new Date(this.addAttCalendarYear, this.addAttCalendarMonth, 1).getDay();
+        const totalDays = new Date(this.addAttCalendarYear, this.addAttCalendarMonth + 1, 0).getDate();
+
+        const today = new Date();
+        const isCurrentMonthYearToday = (today.getFullYear() === this.addAttCalendarYear && today.getMonth() === this.addAttCalendarMonth);
+
+        const selDate = this.addAttSelectedDate || new Date();
+        const isSelMonthYear = (selDate.getFullYear() === this.addAttCalendarYear && selDate.getMonth() === this.addAttCalendarMonth);
+
+        for (let i = 0; i < firstDayIndex; i++) {
+          const emptyDiv = document.createElement('div');
+          emptyDiv.className = 'calendar-day-btn empty-cell';
+          grid.appendChild(emptyDiv);
+        }
+
+        for (let day = 1; day <= totalDays; day++) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'calendar-day-btn';
+          btn.textContent = day;
+
+          if (isCurrentMonthYearToday && day === today.getDate()) {
+            btn.classList.add('today-cell');
+          }
+
+          if (isSelMonthYear && day === selDate.getDate()) {
+            btn.classList.add('selected');
+          }
+
+          btn.onclick = () => {
+            this.addAttSelectedDate = new Date(this.addAttCalendarYear, this.addAttCalendarMonth, day);
+            const dateInput = document.getElementById('addAttDateInput');
+            if (dateInput) {
+              const yyyy = this.addAttCalendarYear;
+              const mm = String(this.addAttCalendarMonth + 1).padStart(2, '0');
+              const dd = String(day).padStart(2, '0');
+              dateInput.value = `${yyyy}-${mm}-${dd}`;
+            }
+            this.renderAddAttCalendarGrid();
+          };
+
+          grid.appendChild(btn);
+        }
+      }
+
+      onAddAttDateInputChange(valStr) {
+        if (!valStr) return;
+        const parts = valStr.split('-');
+        if (parts.length === 3) {
+          const yyyy = parseInt(parts[0], 10);
+          const mm = parseInt(parts[1], 10) - 1;
+          const dd = parseInt(parts[2], 10);
+          this.addAttSelectedDate = new Date(yyyy, mm, dd);
+          this.addAttCalendarYear = yyyy;
+          this.addAttCalendarMonth = mm;
+          this.renderAddAttCalendarGrid();
+        }
+      }
+
+      startTableAttendanceSession() {
+        const currentClass = this.getCurrentClass();
+        if (!currentClass) return;
+
+        const dateInput = document.getElementById('addAttDateInput');
+        let dateObj = this.addAttSelectedDate || new Date();
+        if (dateInput && dateInput.value) {
+          const parts = dateInput.value.split('-');
+          if (parts.length === 3) {
+            dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+          }
+        }
+
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const dayStr = dayNames[dateObj.getDay()];
+        const y = dateObj.getFullYear() % 100;
+        const yStr = y < 10 ? '0' + y : y;
+        const dateStr = `${dateObj.getMonth() + 1}/${dateObj.getDate()}/${yStr}`;
+
+        this.draftAttendanceDate = {
+          id: 'date_' + Date.now(),
+          date: dateStr,
+          day: dayStr,
+          timestamp: dateObj.getTime(),
+          statuses: {}
+        };
+
+        (currentClass.classList || []).forEach(student => {
+          this.draftAttendanceDate.statuses[student] = 'unplaced';
+        });
+
+        this.isDraftAttendanceActive = true;
+        this.closeModal('addAttendanceDateModal');
+        this.updateAddAttendanceButtonUI();
+        this.renderAttendanceTable();
+      }
+
+      toggleDraftAttendanceStudent(studentName) {
+        if (!this.isDraftAttendanceActive || !this.draftAttendanceDate) return;
+        if (!this.draftAttendanceDate.statuses) this.draftAttendanceDate.statuses = {};
+        const current = this.draftAttendanceDate.statuses[studentName];
+        let nextStatus = 'present';
+        if (!current || current === 'unplaced' || current === '') {
+          nextStatus = 'present';
+        } else if (current === 'present') {
+          nextStatus = 'absent';
+        } else if (current === 'absent') {
+          nextStatus = 'unplaced';
+        } else {
+          nextStatus = 'present';
+        }
+        this.draftAttendanceDate.statuses[studentName] = nextStatus;
+        this.renderAttendanceTable();
+      }
+
       deleteAttendanceColumn(dateId) {
         const currentClass = this.getCurrentClass();
         if (!currentClass || !Array.isArray(currentClass.attendanceDates)) return;
@@ -3709,6 +5254,8 @@ class SeatingChartApp {
           classNameSpan.textContent = currentClass.name;
         }
 
+        this.updateAddAttendanceButtonUI();
+
         if (!Array.isArray(currentClass.attendanceDates)) {
           currentClass.attendanceDates = this.getDefaultAttendanceDates();
         }
@@ -3716,27 +5263,42 @@ class SeatingChartApp {
         const classList = currentClass.classList || [];
         const dates = currentClass.attendanceDates;
 
+        const displayDates = [...dates];
+        if (this.isDraftAttendanceActive && this.draftAttendanceDate) {
+          displayDates.push({ ...this.draftAttendanceDate, isDraft: true });
+        }
+
         // Header Row: Top-left cell empty + date columns with delete button if in edit mode
         let html = '<thead><tr><th></th>';
-        dates.forEach(d => {
-          const delBtnHTML = this.isEditMode
-            ? `<button class="delete-date-col-btn" onclick="event.stopPropagation(); app.deleteAttendanceColumn('${d.id}')" title="Delete Column">&times;</button>`
-            : '';
+        displayDates.forEach(d => {
+          if (d.isDraft) {
+            html += `<th style="background-color: #f8fafc; border-bottom: 2px solid #cbd5e1; border-left: 2px dashed #94a3b8; border-right: 2px dashed #94a3b8;">
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2; padding: 2px 0;">
+                <span style="font-weight: 700; font-size: 0.85rem; color: #0f172a;">${d.date}</span>
+                <span style="font-weight: 500; font-size: 0.72rem; color: #64748b; margin-top: 1px;">${d.day}</span>
+                <span style="font-weight: 800; font-size: 0.68rem; text-transform: uppercase; color: #f97316; margin-top: 2px; letter-spacing: 0.5px;">(Drafting)</span>
+              </div>
+            </th>`;
+          } else {
+            const delBtnHTML = this.isEditMode
+              ? `<button class="delete-date-col-btn" onclick="event.stopPropagation(); app.deleteAttendanceColumn('${d.id}')" title="Delete Column">&times;</button>`
+              : '';
 
-          html += `<th>
-            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2; padding: 2px 0;">
-              ${delBtnHTML}
-              <span style="font-weight: 700; font-size: 0.85rem; color: #0f172a;">${d.date}</span>
-              <span style="font-weight: 500; font-size: 0.72rem; color: #64748b; margin-top: 1px; text-transform: none; letter-spacing: 0;">${d.day}</span>
-            </div>
-          </th>`;
+            html += `<th>
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2; padding: 2px 0;">
+                ${delBtnHTML}
+                <span style="font-weight: 700; font-size: 0.85rem; color: #0f172a;">${d.date}</span>
+                <span style="font-weight: 500; font-size: 0.72rem; color: #64748b; margin-top: 1px; text-transform: none; letter-spacing: 0;">${d.day}</span>
+              </div>
+            </th>`;
+          }
         });
         html += '</tr></thead>';
 
         // Body Rows: Student Full Name on left + Green Check, Red X, or Blank per date
         html += '<tbody>';
         if (classList.length === 0) {
-          html += `<tr><td colspan="${dates.length + 1}" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 24px;">No students in this class list</td></tr>`;
+          html += `<tr><td colspan="${displayDates.length + 1}" style="text-align: center; color: var(--text-muted); font-style: italic; padding: 24px;">No students in this class list</td></tr>`;
         } else {
           classList.forEach(student => {
             const profile = this.getStudentProfile(currentClass, student);
@@ -3747,10 +5309,10 @@ class SeatingChartApp {
             let presentCount = 0;
             let dateCellsHTML = '';
 
-            dates.forEach(d => {
+            displayDates.forEach(d => {
               let status = (d.statuses && d.statuses[student] !== undefined) ? d.statuses[student] : null;
 
-              if (status === null) {
+              if (status === null && !d.isDraft) {
                 // Fallback for legacy sample dates
                 const seedStr = `${currentClass.id}_${student}_${d.date}`;
                 let hash = 0;
@@ -3761,20 +5323,51 @@ class SeatingChartApp {
                 status = ((Math.abs(hash) % 10) >= 3) ? 'present' : 'absent';
               }
 
-              if (status === 'present') {
-                presentCount++;
-                dateCellsHTML += `<td><span class="attendance-status-present" title="Present">✓</span></td>`;
-              } else if (status === 'absent') {
-                dateCellsHTML += `<td><span class="attendance-status-absent" title="Absent">✕</span></td>`;
-              } else if (status === 'unplaced') {
-                dateCellsHTML += `<td></td>`; // Blank box for unplaced student
+              if (d.isDraft) {
+                const isPresent = (status === 'present');
+                const isAbsent = (status === 'absent');
+                if (isPresent) presentCount++;
+                let draftStatusHTML = '';
+                let draftBg = 'background-color: #f8fafc;';
+
+                if (isPresent) {
+                  draftStatusHTML = `<span class="attendance-status-present" title="Present (Click for Absent ✕)">✓</span>`;
+                } else if (isAbsent) {
+                  draftStatusHTML = `<span class="attendance-status-absent" title="Absent (Click for Dash —)">✕</span>`;
+                  draftBg = 'background-color: #fef2f2 !important;';
+                } else {
+                  draftStatusHTML = `<span style="color: #94a3b8; font-weight: 800; font-size: 1.1rem;" title="Unrecorded (Click for Present ✓)">—</span>`;
+                }
+
+                dateCellsHTML += `<td style="${draftBg} border-left: 2px dashed #cbd5e1; border-right: 2px dashed #cbd5e1; text-align: center; cursor: pointer; user-select: none;" onclick="event.stopPropagation(); app.toggleDraftAttendanceStudent('${this.escapeQuotes(student)}')" title="Click to cycle attendance (— → ✓ → ✕)">${draftStatusHTML}</td>`;
               } else {
-                dateCellsHTML += `<td></td>`;
+                let statusHTML = '';
+                if (status === 'present') {
+                  presentCount++;
+                  statusHTML = `<span class="attendance-status-present" title="Present">✓</span>`;
+                } else if (status === 'absent') {
+                  statusHTML = `<span class="attendance-status-absent" title="Absent">✕</span>`;
+                } else {
+                  statusHTML = this.isEditMode ? `<span style="color: #cbd5e1; font-weight: bold; font-size: 0.9rem;">—</span>` : ``;
+                }
+
+                const cellClass = this.isEditMode ? 'attendance-cell-interactive' : '';
+                const cellOnClick = this.isEditMode ? `onclick="app.cycleStudentAttendance(app.getCurrentClass(), '${d.id}', '${this.escapeQuotes(student)}')"` : '';
+                const cellTitle = this.isEditMode ? 'Click to change attendance (✓, ✕, blank)' : (status === 'present' ? 'Present' : (status === 'absent' ? 'Absent' : 'Unrecorded'));
+
+                dateCellsHTML += `<td class="${cellClass}" style="cursor: ${this.isEditMode ? 'pointer' : 'default'}; user-select: none;" ${cellOnClick} title="${cellTitle}">${statusHTML}</td>`;
               }
             });
 
-            const ratioText = `(${presentCount}/${dates.length})`;
-            html += `<tr><td><div style="display: flex; justify-content: space-between; align-items: center;"><span>${this.escapeHtml(fullName)}</span><span style="font-size: 0.8rem; font-weight: 700; color: var(--primary); background: #e0e7ff; padding: 2px 6px; border-radius: 10px; margin-left: 8px;">${ratioText}</span></div></td>${dateCellsHTML}</tr>`;
+            const ratioText = `(${presentCount}/${displayDates.length})`;
+            const studentClick = (this.isDraftAttendanceActive && this.draftAttendanceDate)
+              ? `style="cursor: pointer;" onclick="app.toggleDraftAttendanceStudent('${this.escapeQuotes(student)}')"`
+              : '';
+            const studentTitle = (this.isDraftAttendanceActive && this.draftAttendanceDate)
+              ? `title="Click to toggle attendance for ${this.escapeHtml(fullName)}"`
+              : '';
+
+            html += `<tr><td ${studentClick} ${studentTitle}><div style="display: flex; align-items: center; gap: 8px;"><span style="font-weight: 600; color: #0f172a;">${this.escapeHtml(fullName)}</span><span style="font-size: 0.8rem; font-weight: 700; color: var(--primary); background: #e0e7ff; padding: 2px 6px; border-radius: 10px;">${ratioText}</span></div></td>${dateCellsHTML}</tr>`;
           });
         }
         html += '</tbody>';
@@ -3804,6 +5397,45 @@ class SeatingChartApp {
         }
       }
 
+      renderGradeSubjectDropdown() {
+        const select = document.getElementById('gradesSubjectSelect');
+        const selectFS = document.getElementById('fullscreenSubjectSelect');
+        const selectSidebar = document.getElementById('sidebarSubjectSelect');
+        if (!Array.isArray(this.subjects) || this.subjects.length === 0) {
+          this.subjects = [
+            {
+              id: 'subj_music',
+              name: 'Music',
+              categories: ['Singing', 'Instruments', 'Movement', 'Culture', 'Theory', 'Effort']
+            }
+          ];
+        }
+        const currentClass = this.getCurrentClass();
+        const currentSubjId = this.getClassSubjectId(currentClass);
+
+        [select, selectFS, selectSidebar].forEach(sel => {
+          if (!sel) return;
+          sel.innerHTML = '';
+          this.subjects.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name;
+            if (s.id === currentSubjId) opt.selected = true;
+            sel.appendChild(opt);
+          });
+          sel.value = currentSubjId;
+        });
+      }
+
+      switchGradeSubject(subjectId) {
+        const currentClass = this.getCurrentClass();
+        if (!currentClass || !subjectId) return;
+        currentClass.subjectId = subjectId;
+        this.saveData();
+        this.renderGradesTable();
+        this.populateSettingsSubjectDropdown();
+      }
+
       renderClassDropdown() {
         const selectHeader = document.getElementById('classSelect');
         const selectFS = document.getElementById('fullscreenClassSelect');
@@ -3822,6 +5454,8 @@ class SeatingChartApp {
           });
           select.value = this.currentClassId;
         });
+
+        this.renderGradeSubjectDropdown();
       }
 
       renderRoster() {
@@ -4377,9 +6011,15 @@ class SeatingChartApp {
           const x = Math.cos(angle) * radius;
           const y = Math.sin(angle) * radius;
 
+          // Calculate z-index relative to 9:00 position (Math.PI angle)
+          // idx=0 is at 12:00. Position at 9:00 is index at angle ~ PI, which is idx = Math.round(total * 0.75) % total.
+          const nineOClockIdx = Math.round(total * 0.75) % total;
+          const zIndex = ((idx - nineOClockIdx + total) % total) + 1;
+
           seatEl.style.position = 'absolute';
           seatEl.style.left = `calc(50% + ${x}px - 55px)`;
           seatEl.style.top = `calc(50% + ${y}px - 37px)`;
+          seatEl.style.zIndex = zIndex;
 
           container.appendChild(seatEl);
         });
@@ -4682,45 +6322,119 @@ class SeatingChartApp {
       createSeatElement(name, groupIndex) {
         const safeName = (name === null || name === undefined) ? '' : String(name);
         const currentClass = this.getCurrentClass();
-        const showFaces = currentClass ? (currentClass.showFaces !== false) : true;
+        const showFaces = currentClass ? (currentClass.showFaces !== false && currentClass.showInitials !== false) : true;
+        const showFirstName = currentClass ? (currentClass.showFirstName !== false) : true;
+        const showLastName = currentClass ? (currentClass.showLastName === true) : false;
         const isAbsent = this.isStudentAbsent(currentClass, safeName);
+        let isAttAbsent = isAbsent;
+        if (this.isAttendanceSessionActive && safeName) {
+          const liveStatus = this.activeAttendanceStatuses[safeName];
+          if (liveStatus === 'absent') isAttAbsent = true;
+          else if (liveStatus === 'present') isAttAbsent = false;
+        }
+
+        const isCardAbsent = this.isAttendanceSessionActive ? isAttAbsent : isAbsent;
 
         const profile = this.getStudentProfile(currentClass, safeName);
-        const displayName = profile.firstName || safeName;
+        const firstName = profile.firstName || safeName;
+        const lastName = profile.lastName || '';
         const initials = this.getStudentInitials(profile);
 
         const seat = document.createElement('div');
-        seat.className = 'seat' + (showFaces ? '' : ' no-faces') + (isAbsent ? ' seat-absent' : '');
+        seat.className = 'seat' + (showFaces ? '' : ' no-faces') + (isCardAbsent ? ' seat-absent' : '');
         seat.draggable = this.isEditMode;
+        if (this.isAttendanceSessionActive || !this.isGradeScoringActive) {
+          seat.style.cursor = 'pointer';
+        }
 
-        let nameDisplayHTML = this.escapeHtml(displayName);
+        const nameSpans = [];
+        if (showFirstName && firstName) {
+          nameSpans.push(`<span class="student-first-name">${this.escapeHtml(firstName)}</span>`);
+        }
+        if (showLastName && lastName) {
+          nameSpans.push(`<span class="student-last-name">${this.escapeHtml(lastName)}</span>`);
+        }
+
+        const nameDisplayHTML = nameSpans.length > 0
+          ? `<div class="student-name">${nameSpans.join(' ')}</div>`
+          : '';
 
         seat.innerHTML = `
           <button class="remove-btn" onclick="event.stopPropagation(); app.removeStudent('${this.escapeQuotes(safeName)}')" title="Remove">&times;</button>
           ${showFaces ? `<div class="avatar">${initials}</div>` : ''}
-          <div class="student-name">${nameDisplayHTML}</div>
+          ${nameDisplayHTML}
         `;
 
+        if (this.isAttendanceSessionActive && safeName) {
+          const attBtn = document.createElement('button');
+          attBtn.type = 'button';
+          attBtn.className = `attendance-live-check-btn ${isAttAbsent ? 'is-absent' : 'is-present'}`;
+          attBtn.style.cssText = `position: absolute; top: 4px; right: 4px; z-index: 6; width: 24px; height: 24px; border-radius: 50%; border: 2px solid ${isAttAbsent ? '#94a3b8' : '#10b981'}; background: ${isAttAbsent ? '#f1f5f9' : '#dcfce7'}; color: ${isAttAbsent ? '#94a3b8' : '#15803d'}; font-size: 0.85rem; font-weight: 900; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.15s ease;`;
+          attBtn.innerHTML = isAttAbsent ? '&minus;' : '✓';
+          attBtn.title = isAttAbsent ? 'Marked Absent (Click to mark Present)' : 'Marked Present (Click to mark Absent)';
+          attBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.toggleLiveAttendanceStudent(safeName);
+          };
+          seat.appendChild(attBtn);
+        }
+
         if (this.isGradeScoringActive && safeName) {
+          const style = (this.activeGradeSession && this.activeGradeSession.gradingStyle) || this.getGradingStyle(currentClass);
           const score = (this.activeGradeSession && this.activeGradeSession.scores)
-            ? (this.activeGradeSession.scores[safeName] || '')
+            ? (this.activeGradeSession.scores[safeName] !== undefined ? this.activeGradeSession.scores[safeName] : '')
             : '';
-          const isCheck = (score === 'check');
-          const isMinus = (score === 'minus');
-          const isX = (score === 'x');
 
           const scoreControls = document.createElement('div');
-          scoreControls.className = 'grade-score-controls';
-          scoreControls.classList.add('grade-score-controls');
-          scoreControls.innerHTML = `
-            <button class="grade-score-btn grade-btn-plus ${isCheck ? 'active-check' : ''}" onclick="event.stopPropagation(); app.recordLiveGradeScore('${this.escapeQuotes(safeName)}', 'plus')" title="Exceeds / Pass (✓)">${isCheck ? '✓' : '+'}</button>
-            <button class="grade-score-btn grade-btn-minus ${isMinus ? 'active-minus' : (isX ? 'active-x' : '')}" onclick="event.stopPropagation(); app.recordLiveGradeScore('${this.escapeQuotes(safeName)}', 'minus')" title="Click for Minus (−), double-click for X (✕)">${isX ? '✕' : '−'}</button>
-          `;
+          if (style === 'standards') {
+            scoreControls.className = 'standards-score-controls';
+            const is4 = (String(score) === '4');
+            const is3 = (String(score) === '3');
+            const is2 = (String(score) === '2');
+            const is1 = (String(score) === '1');
+            scoreControls.innerHTML = `
+              <button type="button" class="standards-btn standards-btn-4 ${is4 ? 'active-4' : ''}" onclick="event.stopPropagation(); app.recordLiveGradeScore('${this.escapeQuotes(safeName)}', '4')" title="4 - Advanced (Yellow)">4</button>
+              <button type="button" class="standards-btn standards-btn-3 ${is3 ? 'active-3' : ''}" onclick="event.stopPropagation(); app.recordLiveGradeScore('${this.escapeQuotes(safeName)}', '3')" title="3 - Proficient (Green)">3</button>
+              <button type="button" class="standards-btn standards-btn-2 ${is2 ? 'active-2' : ''}" onclick="event.stopPropagation(); app.recordLiveGradeScore('${this.escapeQuotes(safeName)}', '2')" title="2 - Approaching (Orange)">2</button>
+              <button type="button" class="standards-btn standards-btn-1 ${is1 ? 'active-1' : ''}" onclick="event.stopPropagation(); app.recordLiveGradeScore('${this.escapeQuotes(safeName)}', '1')" title="1 - Beginning (Red)">1</button>
+            `;
+          } else if (style === 'points') {
+            const maxPts = (this.activeGradeSession && this.activeGradeSession.maxPoints) || 10;
+            if (score !== '' && score !== null && score !== undefined && !isNaN(Number(score))) {
+              const earned = Number(score);
+              const pct = Math.round((earned / maxPts) * 100);
+              scoreControls.innerHTML = `<button type="button" class="points-badge-btn points-badge-scored" onclick="event.stopPropagation(); app.openPointsEntryModal('${this.escapeQuotes(safeName)}', 'live')">${earned}/${maxPts} <span class="points-badge-pct">(${pct}%)</span></button>`;
+            } else {
+              scoreControls.innerHTML = `<button type="button" class="points-badge-btn points-badge-unscored" onclick="event.stopPropagation(); app.openPointsEntryModal('${this.escapeQuotes(safeName)}', 'live')">? / ${maxPts}</button>`;
+            }
+          } else {
+            scoreControls.className = 'grade-score-controls';
+            const isCheck = (score === 'check' || score === 'plus');
+            const isMinus = (score === 'minus');
+            const isX = (score === 'x');
+            scoreControls.innerHTML = `
+              <button class="grade-score-btn grade-btn-plus ${isCheck ? 'active-check' : ''}" onclick="event.stopPropagation(); app.recordLiveGradeScore('${this.escapeQuotes(safeName)}', 'plus')" title="Exceeds / Pass (✓)">${isCheck ? '✓' : '+'}</button>
+              <button class="grade-score-btn grade-btn-minus ${isMinus ? 'active-minus' : (isX ? 'active-x' : '')}" onclick="event.stopPropagation(); app.recordLiveGradeScore('${this.escapeQuotes(safeName)}', 'minus')" title="Click for Minus (−), double-click for X (✕)">${isX ? '✕' : '−'}</button>
+            `;
+          }
           seat.appendChild(scoreControls);
         }
 
         let clickTimer = null;
         seat.onclick = (e) => {
+          if (this.isAttendanceSessionActive && safeName) {
+            e.stopPropagation();
+            this.toggleLiveAttendanceStudent(safeName);
+            return;
+          }
+          if (this.isGradeScoringActive && safeName) {
+            const liveStyle = (this.activeGradeSession && this.activeGradeSession.gradingStyle) || this.getGradingStyle(currentClass);
+            if (liveStyle === 'points') {
+              e.stopPropagation();
+              this.openPointsEntryModal(safeName, 'live');
+              return;
+            }
+          }
           if (this.isEditMode && safeName) {
             e.stopPropagation();
             if (clickTimer) {
@@ -4731,6 +6445,9 @@ class SeatingChartApp {
               this.toggleStudentAbsent(safeName);
               clickTimer = null;
             }, 220);
+          } else if (!this.isGradeScoringActive && safeName) {
+            e.stopPropagation();
+            this.toggleStudentAbsent(safeName);
           }
         };
 
