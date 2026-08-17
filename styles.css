@@ -160,6 +160,7 @@
       border: 1px solid var(--border-color);
       border-radius: var(--radius);
       padding: 16px;
+      box-sizing: border-box;
     }
 
     .panel h3 {
@@ -204,8 +205,7 @@
 
     .roster-list {
       list-style: none;
-      min-height: 250px;
-      max-height: 500px;
+      min-height: 0;
       overflow-y: auto;
       border: 1px solid var(--border-color);
       border-radius: 6px;
@@ -560,7 +560,7 @@
       position: relative;
       height: 578px;
       width: 578px;
-      margin: 0 auto;
+      margin: 45px auto 35px auto;
       border: 2px dashed #cbd5e1;
       border-radius: 50%;
     }
@@ -568,32 +568,33 @@
     .circle-dial-container {
       position: absolute;
       left: -90px;
-      top: 50%;
-      transform: translateY(-50%);
+      top: -30px;
+      transform: none;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       background: rgba(255, 255, 255, 0.95);
       border: 1px solid var(--border-color);
-      border-radius: 20px;
-      padding: 10px 8px;
+      border-radius: 16px;
+      padding: 7px 6px;
       box-shadow: var(--shadow);
       z-index: 30;
       user-select: none;
-      transition: left 0.3s ease;
+      transition: left 0.3s ease, top 0.3s ease;
     }
 
     body.fullscreen-mode .circle-dial-container {
       left: -190px;
+      top: 10px;
     }
 
     .circle-dial-text {
-      font-size: 0.65rem;
+      font-size: 0.55rem;
       font-weight: 700;
       color: #64748b;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.4px;
     }
 
     .circle-dial-slider {
@@ -601,7 +602,7 @@
       -webkit-appearance: slider-vertical;
       appearance: slider-vertical;
       width: 10px;
-      height: 110px;
+      height: 93px;
       cursor: pointer;
     }
 
@@ -635,11 +636,19 @@
       font-weight: 600;
       color: var(--text-dark);
       word-break: break-word;
-      line-height: 1.25;
+      line-height: 1.2;
+      max-width: 100%;
+      text-align: center;
+    }
+
+    .seat .student-name .student-first-name,
+    .seat .student-name .student-last-name {
+      display: inline;
     }
 
     .seat.no-faces .student-name {
       font-size: 0.8rem;
+      line-height: 1.15;
     }
 
     .seat .avatar {
@@ -725,7 +734,7 @@
     .seat.drag-over { border: 2px solid var(--primary); background-color: #e0e7ff; transform: scale(1.05); }
     body.edit-mode .seat-row.drag-over, body.edit-mode .group-box.drag-over { background-color: #e0e7ff; border-color: var(--primary); border-style: solid; }
 
-    /* Full Screen Seating Chart Mode */
+    /* Full Screen Mode for Seating Chart, Attendance, and Grades */
     body.fullscreen-mode header,
     body.fullscreen-mode .sidebar {
       display: none !important;
@@ -737,6 +746,23 @@
       right: 16px;
       z-index: 1001;
       box-shadow: var(--shadow-lg);
+      border-radius: 8px;
+      background: white;
+      border: 1px solid var(--border-color);
+    }
+
+    body.fullscreen-mode .rows-subheader {
+      position: fixed;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1001;
+      width: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      box-shadow: var(--shadow-lg);
+      padding: 6px 18px;
+      background: white;
     }
 
     body.fullscreen-mode .viewport {
@@ -760,8 +786,58 @@
       max-width: 420px;
     }
 
+    body.fullscreen-mode #attendanceAppBody,
+    body.fullscreen-mode #gradesAppBody {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      z-index: 999 !important;
+      padding: 68px 16px 16px 16px !important;
+      box-sizing: border-box !important;
+      overflow: hidden !important;
+      flex-direction: column !important;
+      align-items: stretch !important;
+      justify-content: flex-start !important;
+      background-color: #f1f5f9 !important;
+    }
+
+    body.fullscreen-mode #attendanceAppBody .panel,
+    body.fullscreen-mode #gradesAppBody .panel {
+      max-width: 100% !important;
+      width: 100% !important;
+      height: 100% !important;
+      flex: 1 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      padding: 12px 16px !important;
+      margin-top: 0 !important;
+      box-shadow: var(--shadow-md) !important;
+      border-radius: 10px !important;
+      box-sizing: border-box !important;
+      overflow: hidden !important;
+    }
+
+    /* In fullscreen mode, hide the duplicate panel header inside Attendance & Grades panels */
+    body.fullscreen-mode #attendanceAppBody .panel > div:first-child,
+    body.fullscreen-mode #gradesAppBody .panel > div:first-child {
+      display: none !important;
+    }
+
+    body.fullscreen-mode #attendanceAppBody .attendance-table-container,
+    body.fullscreen-mode #gradesAppBody .attendance-table-container {
+      flex: 1 !important;
+      width: 100% !important;
+      height: 100% !important;
+      max-height: none !important;
+      overflow: auto !important;
+    }
+
     .fullscreen-controls {
-      position: absolute;
+      position: fixed;
       top: 16px;
       right: 16px;
       z-index: 1000;
@@ -771,7 +847,7 @@
     }
 
     .fullscreen-class-controls {
-      position: absolute;
+      position: fixed;
       top: 16px;
       left: 16px;
       z-index: 1000;
@@ -812,7 +888,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 100;
+      z-index: 2000;
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.2s;
@@ -825,7 +901,9 @@
       padding: 24px;
       width: 100%;
       max-width: 450px;
+      max-height: 90vh;
       box-shadow: var(--shadow-lg);
+      box-sizing: border-box;
     }
     .modal h2 { margin-bottom: 16px; font-size: 1.2rem; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
@@ -912,6 +990,15 @@
 
     .attendance-table tr:hover td.column-hover {
       background-color: #e2e8f0 !important;
+    }
+
+    .attendance-cell-interactive {
+      cursor: pointer !important;
+      transition: background-color 0.15s ease, transform 0.1s ease;
+    }
+
+    .attendance-cell-interactive:hover {
+      background-color: #e0e7ff !important;
     }
 
     .attendance-status-present {
@@ -1187,6 +1274,219 @@
   box-shadow: 0 0 6px rgba(220, 38, 38, 0.4);
 }
 
+/* Standards-Based Grading Styles */
+.standards-score-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.standards-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+
+.standards-btn:hover {
+  transform: scale(1.15);
+}
+
+/* 4 - Yellow */
+.standards-btn-4:hover {
+  border-color: #eab308;
+  color: #854d0e;
+  background: #fef08a;
+}
+.standards-btn-4.active-4 {
+  background-color: #eab308 !important;
+  color: #ffffff !important;
+  border-color: #ca8a04 !important;
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.5);
+}
+
+/* 3 - Green */
+.standards-btn-3:hover {
+  border-color: #22c55e;
+  color: #15803d;
+  background: #dcfce7;
+}
+.standards-btn-3.active-3 {
+  background-color: #22c55e !important;
+  color: #ffffff !important;
+  border-color: #16a34a !important;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+}
+
+/* 2 - Orange */
+.standards-btn-2:hover {
+  border-color: #f97316;
+  color: #c2410c;
+  background: #ffedd5;
+}
+.standards-btn-2.active-2 {
+  background-color: #f97316 !important;
+  color: #ffffff !important;
+  border-color: #ea580c !important;
+  box-shadow: 0 0 6px rgba(249, 115, 22, 0.5);
+}
+
+/* 1 - Red */
+.standards-btn-1:hover {
+  border-color: #ef4444;
+  color: #b91c1c;
+  background: #fee2e2;
+}
+.standards-btn-1.active-1 {
+  background-color: #ef4444 !important;
+  color: #ffffff !important;
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+}
+
+/* Standards-Based Completed Circled Badges */
+.standards-grade-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 0.92rem;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  user-select: none;
+}
+
+.grade-standards-4 {
+  background: #fef9c3;
+  color: #854d0e;
+  border: 2px solid #eab308;
+}
+
+.grade-standards-3 {
+  background: #dcfce7;
+  color: #15803d;
+  border: 2px solid #22c55e;
+}
+
+.grade-standards-2 {
+  background: #ffedd5;
+  color: #c2410c;
+  border: 2px solid #f97316;
+}
+
+.grade-standards-1 {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 2px solid #ef4444;
+}
+
+/* Points-Based Grading Styles */
+.points-badge-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  font-weight: 800;
+  cursor: pointer;
+  line-height: 1.2;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.points-badge-btn:hover {
+  transform: scale(1.06);
+}
+
+.points-badge-unscored {
+  background: #f1f5f9;
+  border: 1.5px dashed #94a3b8;
+  color: #475569;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.points-badge-unscored:hover {
+  background: #e2e8f0;
+  border-color: #64748b;
+}
+
+.points-badge-scored {
+  background: #eff6ff;
+  border: 1.5px solid #3b82f6;
+  color: #1d4ed8;
+  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.15);
+}
+.points-badge-scored:hover {
+  background: #dbeafe;
+  border-color: #2563eb;
+}
+
+.points-badge-pct {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #2563eb;
+}
+
+.points-score-controls {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  margin-top: 4px;
+  background: #ffffff;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.points-input {
+  width: 36px;
+  height: 22px;
+  padding: 1px 3px;
+  border: 1px solid #94a3b8;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-align: center;
+  color: #0f172a;
+  outline: none;
+  background: #f8fafc;
+  transition: all 0.15s ease;
+}
+
+.points-input:focus {
+  border-color: #2563eb;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.points-max {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+  user-select: none;
+}
+
 .col-move-btn {
   background: #ffffff;
   border: 1.5px solid #cbd5e1;
@@ -1227,4 +1527,126 @@ th.column-dragging {
 th.column-drag-over {
   border-left: 4px solid var(--primary) !important;
   background-color: #e0e7ff !important;
+}
+
+/* Modal Auto Fill Toggle & Master Grade Selector */
+.auto-fill-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #475569;
+  transition: all 0.15s ease;
+  user-select: none;
+  line-height: 1.2;
+}
+
+.auto-fill-toggle-btn:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.auto-fill-toggle-btn.active {
+  background: #8b5cf6 !important;
+  border-color: #7c3aed !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(139, 92, 246, 0.35);
+}
+
+.auto-fill-controls-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Attendance Link in Grade Book & Header Toggle Button */
+.btn-grades-attendance-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1.5px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+  user-select: none;
+  line-height: 1.2;
+}
+
+.btn-grades-attendance-toggle:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #1e293b;
+}
+
+.btn-grades-attendance-toggle.active {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #1d4ed8;
+  box-shadow: 0 1px 4px rgba(59, 130, 246, 0.25);
+}
+
+.btn-grades-attendance-toggle .att-dot-green {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 3px rgba(16, 185, 129, 0.7);
+}
+
+.btn-grades-attendance-toggle .att-dot-divider {
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin: 0 1px;
+}
+
+.btn-grades-attendance-toggle .att-dot-red {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  box-shadow: 0 0 3px rgba(239, 68, 68, 0.7);
+}
+
+.cell-att-indicator {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 2;
+  pointer-events: none;
+  line-height: 1;
+}
+
+.cell-att-present {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 2px rgba(16, 185, 129, 0.7);
+}
+
+.cell-att-absent {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  box-shadow: 0 0 2px rgba(239, 68, 68, 0.7);
+}
+
+.grade-cell-absent-bg {
+  background-color: #fef2f2 !important;
 }
