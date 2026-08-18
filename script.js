@@ -39,6 +39,7 @@ class SeatingChartApp {
           }
         ];
         this.tempSubjects = [];
+        this.scheduleTimeBlocks = [];
 
         this.init();
       }
@@ -47,7 +48,7 @@ class SeatingChartApp {
         const titleText = (this.appName && this.appName.trim()) ? this.appName.trim() : 'ClassPlanner';
         const brandEl = document.getElementById('appTitleBrandText');
         if (brandEl) brandEl.textContent = titleText;
-        document.title = `${titleText} 1.2`;
+        document.title = `${titleText} 1.5`;
       }
 
       init() {
@@ -202,7 +203,9 @@ class SeatingChartApp {
           attendanceDates: [],
           subjectGrades: {
             'subj_music': []
-          }
+          },
+          scheduleTime: '',
+          scheduleDays: []
         };
 
         const sampleClass = this.sanitizeAndMigrateClass(rawSample, 'subj_music');
@@ -274,6 +277,7 @@ class SeatingChartApp {
         localStorage.setItem('classPlanner_currentId_v6', this.currentClassId || '');
         localStorage.setItem('classPlanner_appName', this.appName || 'ClassPlanner');
         localStorage.setItem('classPlanner_subjects_v1', JSON.stringify(this.subjects));
+        localStorage.setItem('classPlanner_scheduleTimeBlocks_v1', JSON.stringify(this.scheduleTimeBlocks || []));
         localStorage.setItem('seatingApp_appName', this.appName || 'ClassPlanner');
         localStorage.setItem('seatingApp_gradingStyle', this.gradingStyle || 'informal');
         localStorage.setItem('seatingApp_suppressRemoveStudentWarning', this.suppressRemoveStudentWarning.toString());
@@ -393,6 +397,76 @@ class SeatingChartApp {
           }
         });
 
+        // Schedule information
+        if (typeof c.scheduleTime !== 'string') c.scheduleTime = '';
+        if (!Array.isArray(c.scheduleDays)) c.scheduleDays = [];
+        else c.scheduleDays = c.scheduleDays.map(d => String(d).trim()).filter(Boolean);
+
+        if (!Array.isArray(c.scheduleNotes)) c.scheduleNotes = [];
+        else {
+          c.scheduleNotes = c.scheduleNotes.map(n => {
+            if (!n || typeof n !== 'object') return null;
+            return {
+              id: n.id || ('note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4)),
+              text: typeof n.text === 'string' ? n.text.trim() : '',
+              target: (n.target === 'specific') ? 'specific' : 'all',
+              days: Array.isArray(n.days) ? n.days.map(d => String(d).trim()).filter(Boolean) : []
+            };
+          }).filter(n => n && n.text);
+        }
+
+        if (typeof c.scheduleStartBlockIdx !== 'number') c.scheduleStartBlockIdx = -1;
+        if (typeof c.scheduleBlockCount !== 'number' || c.scheduleBlockCount < 1) c.scheduleBlockCount = 1;
+
+        if (!Array.isArray(c.scheduleSlots) || c.scheduleSlots.length === 0) {
+          c.scheduleSlots = [
+            {
+              id: 'slot_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+              startBlockIdx: c.scheduleStartBlockIdx,
+              blockCount: c.scheduleBlockCount,
+              time: c.scheduleTime,
+              days: [...c.scheduleDays]
+            }
+          ];
+        } else {
+          c.scheduleSlots = c.scheduleSlots.map(s => {
+            if (!s || typeof s !== 'object') return null;
+            return {
+              id: s.id || ('slot_' + Math.random().toString(36).substr(2, 4)),
+              startBlockIdx: typeof s.startBlockIdx === 'number' ? s.startBlockIdx : -1,
+              blockCount: typeof s.blockCount === 'number' && s.blockCount >= 1 ? s.blockCount : 1,
+              time: typeof s.time === 'string' ? s.time.trim() : '',
+              days: Array.isArray(s.days) ? s.days.map(d => String(d).trim()).filter(Boolean) : []
+            };
+          }).filter(Boolean);
+          if (c.scheduleSlots.length === 0) {
+            c.scheduleSlots = [{
+              id: 'slot_1',
+              startBlockIdx: -1,
+              blockCount: 1,
+              time: '',
+              days: []
+            }];
+          }
+        }
+
+        if (c.scheduleSlots[0]) {
+          c.scheduleTime = c.scheduleSlots[0].time;
+          c.scheduleDays = c.scheduleSlots[0].days;
+          c.scheduleStartBlockIdx = c.scheduleSlots[0].startBlockIdx;
+          c.scheduleBlockCount = c.scheduleSlots[0].blockCount;
+        }
+
+        if (typeof c.color !== 'string' || !c.color.trim()) c.color = '#059669';
+
+        if (c.entryType === 'text' || c.isTextOnly === true) {
+          c.entryType = 'text';
+          c.isTextOnly = true;
+        } else {
+          c.entryType = 'class';
+          c.isTextOnly = false;
+        }
+
         return c;
       }
 
@@ -425,6 +499,43 @@ class SeatingChartApp {
           } catch (e) {
             console.error('Error loading saved subjects:', e);
           }
+        }
+
+        const savedTimeBlocks = localStorage.getItem('classPlanner_scheduleTimeBlocks_v1');
+        if (savedTimeBlocks) {
+          try {
+            const parsedTB = JSON.parse(savedTimeBlocks);
+            if (Array.isArray(parsedTB)) {
+              this.scheduleTimeBlocks = parsedTB.map(tb => {
+                if (typeof tb === 'string') return { id: 'tb_' + Math.random().toString(36).substr(2, 6), time: tb };
+                if (tb && typeof tb === 'object') return { id: tb.id || ('tb_' + Math.random().toString(36).substr(2, 6)), time: typeof tb.time === 'string' ? tb.time : '' };
+                return null;
+              }).filter(Boolean);
+            } else {
+              this.scheduleTimeBlocks = [];
+            }
+          } catch (e) {
+            console.error('Error loading schedule time blocks:', e);
+            this.scheduleTimeBlocks = [];
+          }
+        } else {
+          this.scheduleTimeBlocks = [];
+        }
+
+        const savedCustomColors = localStorage.getItem('classPlanner_customColors_v1');
+        if (savedCustomColors) {
+          try {
+            const parsedCC = JSON.parse(savedCustomColors);
+            if (Array.isArray(parsedCC) && parsedCC.length === 4) {
+              this.customPaletteColors = parsedCC;
+            } else {
+              this.customPaletteColors = [null, null, null, null];
+            }
+          } catch (e) {
+            this.customPaletteColors = [null, null, null, null];
+          }
+        } else {
+          this.customPaletteColors = [null, null, null, null];
         }
 
         if (!Array.isArray(this.subjects) || this.subjects.length === 0) {
@@ -705,7 +816,7 @@ class SeatingChartApp {
 
         const exportPayload = {
           app: 'ClassPlanner',
-          version: '1.3',
+          version: '1.5',
           appName: this.appName || 'ClassPlanner',
           exportedAt: new Date().toISOString(),
           gradingStyle: this.gradingStyle || 'informal',
@@ -1337,23 +1448,32 @@ class SeatingChartApp {
         const attendanceBody = document.getElementById('attendanceAppBody');
         const gradesBody = document.getElementById('gradesAppBody');
         const aboutBody = document.getElementById('aboutAppBody');
+        const scheduleBody = document.getElementById('scheduleAppBody');
 
+        const navSchedule = document.getElementById('navBtnSchedule');
         const navSeating = document.getElementById('navBtnSeating');
         const navAttendance = document.getElementById('navBtnAttendance');
         const navGrades = document.getElementById('navBtnGrades');
 
         const layoutBtn = document.getElementById('headerLayoutBtn');
+        const editBtn = document.getElementById('headerEditBtn');
+        const fsEditBtn = document.getElementById('fullscreenEditBtn');
         const resizeBtn = document.getElementById('btnResize');
         const chartCamBtn = document.getElementById('chartCameraBtn');
         const attendanceCamBtn = document.getElementById('attendanceCameraBtn');
         const gradesCamBtn = document.getElementById('gradesCameraBtn');
+        const scheduleCamBtn = document.getElementById('scheduleCameraBtn');
+        const headerManageScheduleBtn = document.getElementById('headerManageScheduleBtn');
+        const fsManageScheduleBtn = document.getElementById('fullscreenManageScheduleBtn');
+        const headerEditScheduleBtn = document.getElementById('headerEditScheduleBtn');
+        const fsEditScheduleBtn = document.getElementById('fullscreenEditScheduleBtn');
         const layoutBar = document.getElementById('layoutBar');
 
-        if (layoutBar && (this.currentViewMode === 'attendance' || this.currentViewMode === 'grades' || this.currentViewMode === 'about')) {
+        if (layoutBar && (this.currentViewMode === 'attendance' || this.currentViewMode === 'grades' || this.currentViewMode === 'about' || this.currentViewMode === 'schedule')) {
           layoutBar.classList.remove('open');
         }
 
-        [navSeating, navAttendance, navGrades].forEach(btn => {
+        [navSchedule, navSeating, navAttendance, navGrades].forEach(btn => {
           if (btn) {
             btn.classList.remove('btn-primary');
             btn.classList.add('btn-secondary');
@@ -1362,7 +1482,37 @@ class SeatingChartApp {
 
         const fullscreenLayoutBtn = document.getElementById('fullscreenLayoutBtn');
 
-        if (this.currentViewMode === 'attendance') {
+        if (this.currentViewMode === 'schedule') {
+          if (seatingBody) seatingBody.style.display = 'none';
+          if (attendanceBody) attendanceBody.style.display = 'none';
+          if (gradesBody) gradesBody.style.display = 'none';
+          if (aboutBody) aboutBody.style.display = 'none';
+          if (scheduleBody) scheduleBody.style.display = 'flex';
+
+          if (navSchedule) {
+            navSchedule.classList.remove('btn-secondary');
+            navSchedule.classList.add('btn-primary');
+          }
+
+          if (layoutBtn) layoutBtn.style.display = 'none';
+          if (editBtn) editBtn.style.display = 'none';
+          if (fsEditBtn) fsEditBtn.style.display = 'none';
+          if (resizeBtn) resizeBtn.style.display = '';
+          if (chartCamBtn) chartCamBtn.style.display = 'none';
+          if (attendanceCamBtn) attendanceCamBtn.style.display = 'none';
+          if (gradesCamBtn) gradesCamBtn.style.display = 'none';
+          if (scheduleCamBtn) scheduleCamBtn.style.display = 'inline-flex';
+          if (headerManageScheduleBtn) headerManageScheduleBtn.style.display = 'inline-block';
+          if (fsManageScheduleBtn) fsManageScheduleBtn.style.display = 'inline-block';
+          if (headerEditScheduleBtn) headerEditScheduleBtn.style.display = 'inline-block';
+          if (fsEditScheduleBtn) fsEditScheduleBtn.style.display = 'inline-block';
+
+          if (fullscreenLayoutBtn) fullscreenLayoutBtn.style.display = 'none';
+
+          this.updateScheduleEditButtonUI();
+          this.renderScheduleTable();
+        } else if (this.currentViewMode === 'attendance') {
+          if (scheduleBody) scheduleBody.style.display = 'none';
           if (seatingBody) seatingBody.style.display = 'none';
           if (gradesBody) gradesBody.style.display = 'none';
           if (aboutBody) aboutBody.style.display = 'none';
@@ -1374,15 +1524,23 @@ class SeatingChartApp {
           }
 
           if (layoutBtn) layoutBtn.style.display = 'none';
+          if (editBtn) editBtn.style.display = '';
+          if (fsEditBtn) fsEditBtn.style.display = '';
           if (resizeBtn) resizeBtn.style.display = '';
           if (chartCamBtn) chartCamBtn.style.display = 'none';
           if (attendanceCamBtn) attendanceCamBtn.style.display = 'inline-flex';
           if (gradesCamBtn) gradesCamBtn.style.display = 'none';
+          if (scheduleCamBtn) scheduleCamBtn.style.display = 'none';
+          if (headerManageScheduleBtn) headerManageScheduleBtn.style.display = 'none';
+          if (fsManageScheduleBtn) fsManageScheduleBtn.style.display = 'none';
+          if (headerEditScheduleBtn) headerEditScheduleBtn.style.display = 'none';
+          if (fsEditScheduleBtn) fsEditScheduleBtn.style.display = 'none';
 
           if (fullscreenLayoutBtn) fullscreenLayoutBtn.style.display = 'none';
 
           this.renderAttendanceTable();
         } else if (this.currentViewMode === 'grades') {
+          if (scheduleBody) scheduleBody.style.display = 'none';
           if (seatingBody) seatingBody.style.display = 'none';
           if (attendanceBody) attendanceBody.style.display = 'none';
           if (aboutBody) aboutBody.style.display = 'none';
@@ -1394,28 +1552,44 @@ class SeatingChartApp {
           }
 
           if (layoutBtn) layoutBtn.style.display = 'none';
+          if (editBtn) editBtn.style.display = '';
+          if (fsEditBtn) fsEditBtn.style.display = '';
           if (resizeBtn) resizeBtn.style.display = '';
           if (chartCamBtn) chartCamBtn.style.display = 'none';
           if (attendanceCamBtn) attendanceCamBtn.style.display = 'none';
           if (gradesCamBtn) gradesCamBtn.style.display = 'inline-flex';
+          if (scheduleCamBtn) scheduleCamBtn.style.display = 'none';
+          if (headerManageScheduleBtn) headerManageScheduleBtn.style.display = 'none';
+          if (fsManageScheduleBtn) fsManageScheduleBtn.style.display = 'none';
+          if (headerEditScheduleBtn) headerEditScheduleBtn.style.display = 'none';
+          if (fsEditScheduleBtn) fsEditScheduleBtn.style.display = 'none';
 
           if (fullscreenLayoutBtn) fullscreenLayoutBtn.style.display = 'none';
 
           this.renderGradesTable();
         } else if (this.currentViewMode === 'about') {
+          if (scheduleBody) scheduleBody.style.display = 'none';
           if (seatingBody) seatingBody.style.display = 'none';
           if (attendanceBody) attendanceBody.style.display = 'none';
           if (gradesBody) gradesBody.style.display = 'none';
           if (aboutBody) aboutBody.style.display = 'flex';
 
           if (layoutBtn) layoutBtn.style.display = 'none';
+          if (editBtn) editBtn.style.display = 'none';
+          if (fsEditBtn) fsEditBtn.style.display = 'none';
           if (resizeBtn) resizeBtn.style.display = 'none';
           if (chartCamBtn) chartCamBtn.style.display = 'none';
           if (attendanceCamBtn) attendanceCamBtn.style.display = 'none';
           if (gradesCamBtn) gradesCamBtn.style.display = 'none';
+          if (scheduleCamBtn) scheduleCamBtn.style.display = 'none';
+          if (headerManageScheduleBtn) headerManageScheduleBtn.style.display = 'none';
+          if (fsManageScheduleBtn) fsManageScheduleBtn.style.display = 'none';
+          if (headerEditScheduleBtn) headerEditScheduleBtn.style.display = 'none';
+          if (fsEditScheduleBtn) fsEditScheduleBtn.style.display = 'none';
 
           if (fullscreenLayoutBtn) fullscreenLayoutBtn.style.display = 'none';
         } else {
+          if (scheduleBody) scheduleBody.style.display = 'none';
           if (attendanceBody) attendanceBody.style.display = 'none';
           if (gradesBody) gradesBody.style.display = 'none';
           if (aboutBody) aboutBody.style.display = 'none';
@@ -1427,10 +1601,17 @@ class SeatingChartApp {
           }
 
           if (layoutBtn) layoutBtn.style.display = '';
+          if (editBtn) editBtn.style.display = '';
+          if (fsEditBtn) fsEditBtn.style.display = '';
           if (resizeBtn) resizeBtn.style.display = '';
           if (chartCamBtn) chartCamBtn.style.display = 'inline-flex';
           if (attendanceCamBtn) attendanceCamBtn.style.display = 'none';
           if (gradesCamBtn) gradesCamBtn.style.display = 'none';
+          if (scheduleCamBtn) scheduleCamBtn.style.display = 'none';
+          if (headerManageScheduleBtn) headerManageScheduleBtn.style.display = 'none';
+          if (fsManageScheduleBtn) fsManageScheduleBtn.style.display = 'none';
+          if (headerEditScheduleBtn) headerEditScheduleBtn.style.display = 'none';
+          if (fsEditScheduleBtn) fsEditScheduleBtn.style.display = 'none';
 
           if (fullscreenLayoutBtn) fullscreenLayoutBtn.style.display = '';
         }
@@ -1438,6 +1619,10 @@ class SeatingChartApp {
         const fsSubjectTab = document.getElementById('fullscreenSubjectTab');
         if (fsSubjectTab) {
           fsSubjectTab.style.display = (this.currentViewMode === 'grades') ? 'inline-flex' : 'none';
+        }
+        const fsClassTab = document.getElementById('fullscreenClassTab');
+        if (fsClassTab) {
+          fsClassTab.style.display = (this.currentViewMode === 'schedule') ? 'none' : 'inline-flex';
         }
 
         this.updateAddGradeColumnButtonsUI();
@@ -1455,7 +1640,9 @@ class SeatingChartApp {
       }
 
       triggerFullScreenCameraClick(btnEl) {
-        if (this.currentViewMode === 'attendance') {
+        if (this.currentViewMode === 'schedule') {
+          this.triggerScheduleCameraClick(btnEl);
+        } else if (this.currentViewMode === 'attendance') {
           this.triggerAttendanceCameraClick(btnEl);
         } else if (this.currentViewMode === 'grades') {
           this.triggerGradesCameraClick(btnEl);
@@ -2866,6 +3053,1341 @@ class SeatingChartApp {
         this.renderClassDropdown();
         this.render();
         this.closeModal('editClassesModal');
+      }
+
+      // =========================================================================
+      // Schedule Section & Timetable Management
+      // =========================================================================
+
+      parseTimeSlot(timeStr) {
+        if (!timeStr || typeof timeStr !== 'string') return 9999;
+        const cleaned = timeStr.trim().toLowerCase();
+        const match = cleaned.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+        if (!match) return 9999;
+        let hours = parseInt(match[1], 10);
+        const minutes = match[2] ? parseInt(match[2], 10) : 0;
+        const meridian = match[3] ? match[3].toLowerCase() : null;
+
+        if (meridian === 'pm' && hours < 12) hours += 12;
+        if (meridian === 'am' && hours === 12) hours = 0;
+        if (!meridian) {
+          if (hours >= 1 && hours <= 6) hours += 12;
+        }
+        return hours * 60 + minutes;
+      }
+
+      generateNextTimeBlock(timeStr) {
+        if (!timeStr || typeof timeStr !== 'string') return '9:00-9:30';
+
+        const parts = timeStr.split(/[-–—]/);
+        let endStr = (parts.length > 1 ? parts[1] : parts[0]).trim();
+
+        const match = endStr.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+        if (!match) return '9:00-9:30';
+
+        let hours = parseInt(match[1], 10);
+        let minutes = match[2] ? parseInt(match[2], 10) : 0;
+        let meridian = match[3] ? match[3].toUpperCase() : '';
+
+        const startFormatted = `${hours}:${minutes.toString().padStart(2, '0')}${meridian ? ' ' + meridian : ''}`;
+
+        let nextMinutes = minutes + 30;
+        let nextHours = hours;
+        if (nextMinutes >= 60) {
+          nextHours += Math.floor(nextMinutes / 60);
+          nextMinutes = nextMinutes % 60;
+        }
+
+        if (nextHours > 12 && (!meridian || meridian === 'PM')) {
+          if (nextHours > 12) nextHours = nextHours % 12 || 12;
+        } else if (nextHours === 12 && meridian === 'AM') {
+          meridian = 'PM';
+        }
+
+        const endFormatted = `${nextHours}:${nextMinutes.toString().padStart(2, '0')}${meridian ? ' ' + meridian : ''}`;
+        return `${startFormatted}-${endFormatted}`;
+      }
+
+      initScheduleTimeBlocks() {
+        this.scheduleTimeBlocks = [
+          { id: 'tb_' + Date.now(), time: '8:30-9:00' }
+        ];
+        this.isScheduleEditMode = true;
+        this.updateScheduleEditButtonUI();
+        this.saveData();
+        this.renderScheduleTable();
+
+        setTimeout(() => {
+          const firstInput = document.getElementById('timeBlockInput_0');
+          if (firstInput) {
+            firstInput.focus();
+            firstInput.select();
+          }
+        }, 60);
+      }
+
+      toggleScheduleEditMode() {
+        this.isScheduleEditMode = !this.isScheduleEditMode;
+        this.updateScheduleEditButtonUI();
+        this.renderScheduleTable();
+      }
+
+      updateScheduleEditButtonUI() {
+        const headerBtn = document.getElementById('headerEditScheduleBtn');
+        const fsBtn = document.getElementById('fullscreenEditScheduleBtn');
+        [headerBtn, fsBtn].forEach(btn => {
+          if (!btn) return;
+          if (this.isScheduleEditMode) {
+            btn.textContent = 'DONE';
+            btn.classList.remove('btn-secondary');
+            btn.classList.add('btn-primary');
+          } else {
+            btn.textContent = 'EDIT';
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-secondary');
+          }
+        });
+      }
+
+      formatMinutesToTimeString(totalMins, useMeridian = false) {
+        let hours = Math.floor(totalMins / 60);
+        const minutes = totalMins % 60;
+        let meridian = '';
+        if (useMeridian) {
+          meridian = hours >= 12 ? ' PM' : ' AM';
+        }
+        hours = hours % 12;
+        if (hours === 0) hours = 12;
+        return `${hours}:${minutes.toString().padStart(2, '0')}${meridian}`;
+      }
+
+      getTimeBlockEndStr(timeStr) {
+        if (!timeStr || typeof timeStr !== 'string') return '';
+        const parts = timeStr.split(/[-–—]/);
+        return (parts.length > 1 ? parts[1] : parts[0]).trim();
+      }
+
+      getTimeBlockStartStr(timeStr) {
+        if (!timeStr || typeof timeStr !== 'string') return '';
+        const parts = timeStr.split(/[-–—]/);
+        return parts[0].trim();
+      }
+
+      generateTimeBlockForGap(currentBlockTime, nextBlockTime) {
+        const currentEndStr = this.getTimeBlockEndStr(currentBlockTime);
+        const nextStartStr = this.getTimeBlockStartStr(nextBlockTime);
+
+        if (!currentEndStr || !nextStartStr) return null;
+
+        const currentEndMins = this.parseTimeSlot(currentEndStr);
+        const nextStartMins = this.parseTimeSlot(nextStartStr);
+
+        if (currentEndMins === 9999 || nextStartMins === 9999) {
+          if (currentEndStr.toLowerCase() === nextStartStr.toLowerCase()) {
+            return null;
+          }
+          return this.generateNextTimeBlock(currentBlockTime);
+        }
+
+        const diff = nextStartMins - currentEndMins;
+        if (diff <= 0) return null;
+
+        const hasMeridian = /[ap]m/i.test(currentBlockTime) || /[ap]m/i.test(nextBlockTime);
+
+        if (diff <= 30) {
+          const startFormatted = this.formatMinutesToTimeString(currentEndMins, hasMeridian);
+          const endFormatted = this.formatMinutesToTimeString(nextStartMins, hasMeridian);
+          return `${startFormatted}-${endFormatted}`;
+        } else {
+          return this.generateNextTimeBlock(currentBlockTime);
+        }
+      }
+
+      confirmTimeBlockAndAddNext(idx, val) {
+        if (!Array.isArray(this.scheduleTimeBlocks) || !this.scheduleTimeBlocks[idx]) return;
+        const currentVal = (typeof val === 'string' && val.trim()) ? val.trim() : this.scheduleTimeBlocks[idx].time;
+        this.scheduleTimeBlocks[idx].time = currentVal;
+
+        let shouldFocusIdx = null;
+
+        if (idx === this.scheduleTimeBlocks.length - 1) {
+          // Last block: generate next 30-min block at end
+          const nextTime = this.generateNextTimeBlock(currentVal);
+          this.scheduleTimeBlocks.push({
+            id: 'tb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            time: nextTime
+          });
+          shouldFocusIdx = this.scheduleTimeBlocks.length - 1;
+        } else {
+          // Intermediate block: check if there is a gap before the next block
+          const nextBlock = this.scheduleTimeBlocks[idx + 1];
+          const newBlockTime = this.generateTimeBlockForGap(currentVal, nextBlock ? nextBlock.time : '');
+
+          if (newBlockTime) {
+            // Gap found: insert new block in between at idx + 1
+            this.scheduleTimeBlocks.splice(idx + 1, 0, {
+              id: 'tb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+              time: newBlockTime
+            });
+            shouldFocusIdx = idx + 1;
+          } else {
+            // No gap available between current end and next start
+            this.saveData();
+            return;
+          }
+        }
+
+        this.saveData();
+        this.renderScheduleTable();
+
+        if (shouldFocusIdx !== null) {
+          setTimeout(() => {
+            const nextInput = document.getElementById(`timeBlockInput_${shouldFocusIdx}`);
+            if (nextInput) {
+              nextInput.focus();
+              nextInput.select();
+            }
+          }, 60);
+        }
+      }
+
+      updateTimeBlockValue(idx, val) {
+        if (!Array.isArray(this.scheduleTimeBlocks) || !this.scheduleTimeBlocks[idx]) return;
+        this.scheduleTimeBlocks[idx].time = (val || '').trim();
+        this.saveData();
+      }
+
+      deleteTimeBlock(idx) {
+        if (!Array.isArray(this.scheduleTimeBlocks) || !this.scheduleTimeBlocks[idx]) return;
+        this.scheduleTimeBlocks.splice(idx, 1);
+        this.saveData();
+        this.renderScheduleTable();
+      }
+
+      addTimeBlockAtEnd() {
+        if (!Array.isArray(this.scheduleTimeBlocks) || this.scheduleTimeBlocks.length === 0) {
+          this.initScheduleTimeBlocks();
+          return;
+        }
+        const lastBlock = this.scheduleTimeBlocks[this.scheduleTimeBlocks.length - 1];
+        const nextTime = this.generateNextTimeBlock(lastBlock.time);
+        this.scheduleTimeBlocks.push({
+          id: 'tb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+          time: nextTime
+        });
+        this.saveData();
+        this.renderScheduleTable();
+
+        setTimeout(() => {
+          const nextInput = document.getElementById(`timeBlockInput_${this.scheduleTimeBlocks.length - 1}`);
+          if (nextInput) {
+            nextInput.focus();
+            nextInput.select();
+          }
+        }, 60);
+      }
+
+      clearAllScheduleTimeBlocks() {
+        if (confirm('Are you sure you want to clear all time blocks and reset the schedule?')) {
+          this.scheduleTimeBlocks = [];
+          this.isScheduleEditMode = false;
+          this.updateScheduleEditButtonUI();
+          this.saveData();
+          this.renderScheduleTable();
+        }
+      }
+
+      getClassPalette() {
+        return [
+          { key: 'black', name: 'Jet Black', hex: '#111827', bg: '#F3F4F6', border: '#D1D5DB', text: '#111827' },
+          { key: 'electric_blue', name: 'Electric Blue', hex: '#0055FF', bg: '#EFF6FF', border: '#93C5FD', text: '#0040D0' },
+          { key: 'fire_red', name: 'Fire Red', hex: '#DC2626', bg: '#FEF2F2', border: '#FECACA', text: '#DC2626' },
+          { key: 'emerald', name: 'Emerald Green', hex: '#059669', bg: '#ECFDF5', border: '#A7F3D0', text: '#059669' },
+          { key: 'electric_purple', name: 'Electric Purple', hex: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE', text: '#7C3AED' },
+          { key: 'amber_gold', name: 'Warm Amber / Gold', hex: '#D97706', bg: '#FFFBEB', border: '#FDE68A', text: '#D97706' },
+          { key: 'neon_teal', name: 'Neon Teal / Cyan', hex: '#0891B2', bg: '#ECFEFF', border: '#A5F3FC', text: '#0891B2' },
+          { key: 'hot_magenta', name: 'Hot Magenta / Fuchsia', hex: '#C026D3', bg: '#FDF4FF', border: '#F5D0FE', text: '#C026D3' },
+          { key: 'tangerine', name: 'Tangerine Orange', hex: '#EA580C', bg: '#FFF7ED', border: '#FED7AA', text: '#EA580C' },
+          { key: 'olive_chartreuse', name: 'Olive / Chartreuse Green', hex: '#65A30D', bg: '#F7FEE7', border: '#D9F99D', text: '#4D7C0F' },
+          { key: 'slate_gray', name: 'Medium Slate Gray', hex: '#64748B', bg: '#F8FAFC', border: '#CBD5E1', text: '#334155' },
+          { key: 'burgundy', name: 'Deep Wine / Burgundy', hex: '#881337', bg: '#FFF1F2', border: '#FECDD3', text: '#881337' }
+        ];
+      }
+
+      hexToRgba(hex, alpha = 1) {
+        if (!hex || typeof hex !== 'string') return 'rgba(5, 150, 105, ' + alpha + ')';
+        let c = hex.replace('#', '').trim();
+        if (c.length === 3) c = c.split('').map(x => x + x).join('');
+        const num = parseInt(c, 16);
+        if (isNaN(num)) return hex;
+        const r = (num >> 16) & 255;
+        const g = (num >> 8) & 255;
+        const b = num & 255;
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      }
+
+      getClassColorTheme(colorHex) {
+        const palette = this.getClassPalette();
+        const found = palette.find(p => p.hex.toLowerCase() === (colorHex || '').toLowerCase() || p.key === colorHex);
+        if (found) return found;
+        const hex = colorHex || '#059669';
+        return {
+          key: 'custom',
+          name: 'Custom',
+          hex: hex,
+          bg: this.hexToRgba(hex, 0.12),
+          border: this.hexToRgba(hex, 0.38),
+          text: hex
+        };
+      }
+
+      getCombinedTimeRange(startBlockIdx, blockCount = 1) {
+        const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        if (startBlockIdx < 0 || startBlockIdx >= blocks.length) return '';
+        const startTb = blocks[startBlockIdx];
+        const startParts = (startTb.time || '').split(/[-–—]/);
+        const startStr = startParts[0].trim();
+
+        const endBlockIdx = Math.min(startBlockIdx + blockCount - 1, blocks.length - 1);
+        const endTb = blocks[endBlockIdx];
+        const endParts = (endTb.time || '').split(/[-–—]/);
+        const endStr = endParts.length > 1 ? endParts[1].trim() : endParts[0].trim();
+
+        return `${startStr}-${endStr}`;
+      }
+
+      findSlotStartBlockIdx(slot) {
+        if (!slot) return -1;
+        const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        if (blocks.length === 0) return -1;
+        if (typeof slot.startBlockIdx === 'number' && slot.startBlockIdx >= 0 && slot.startBlockIdx < blocks.length) {
+          return slot.startBlockIdx;
+        }
+        if (!slot.time) return -1;
+        const slotStart = slot.time.split(/[-–—]/)[0].trim().toLowerCase();
+        return blocks.findIndex(b => {
+          const bStart = (b.time || '').split(/[-–—]/)[0].trim().toLowerCase();
+          return bStart === slotStart;
+        });
+      }
+
+      findClassStartBlockIdx(c) {
+        if (!c) return -1;
+        if (Array.isArray(c.scheduleSlots) && c.scheduleSlots[0]) {
+          return this.findSlotStartBlockIdx(c.scheduleSlots[0]);
+        }
+        const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        if (blocks.length === 0) return -1;
+        if (typeof c.scheduleStartBlockIdx === 'number' && c.scheduleStartBlockIdx >= 0 && c.scheduleStartBlockIdx < blocks.length) {
+          return c.scheduleStartBlockIdx;
+        }
+        if (!c.scheduleTime) return -1;
+        const cStart = c.scheduleTime.split(/[-–—]/)[0].trim().toLowerCase();
+        return blocks.findIndex(b => {
+          const bStart = (b.time || '').split(/[-–—]/)[0].trim().toLowerCase();
+          return bStart === cStart;
+        });
+      }
+
+      renderScheduleTable() {
+        const table = document.getElementById('scheduleTable');
+        if (!table) return;
+
+        const DAYS = [
+          { key: 'Monday', label: 'Monday', short: 'Mon' },
+          { key: 'Tuesday', label: 'Tuesday', short: 'Tue' },
+          { key: 'Wednesday', label: 'Wednesday', short: 'Wed' },
+          { key: 'Thursday', label: 'Thursday', short: 'Thu' },
+          { key: 'Friday', label: 'Friday', short: 'Fri' }
+        ];
+
+        const timeBlocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+
+        let html = `
+          <thead>
+            <tr>
+              <th style="width: 175px; min-width: 160px; text-align: center;">Time</th>
+              ${DAYS.map(d => `<th style="width: 18%; min-width: 130px; text-align: center;">${d.label}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+        `;
+
+        if (timeBlocks.length === 0) {
+          html += `
+            <tr>
+              <td colspan="6" style="padding: 60px 20px; text-align: center; color: #64748b; font-size: 1rem; background: #fafafa;">
+                <div style="font-size: 2.6rem; margin-bottom: 12px;">🗓️</div>
+                <div style="font-weight: 800; font-size: 1.25rem; color: #1e293b; margin-bottom: 8px;">Welcome to Your Weekly Schedule</div>
+                <div style="font-size: 0.95rem; color: #64748b; margin-bottom: 22px; max-width: 480px; margin-left: auto; margin-right: auto; line-height: 1.5;">
+                  Start by creating your blocks of time. Click below to begin with <strong>8:30-9:00</strong> and customize your daily time slots.
+                </div>
+                <button type="button" class="btn btn-primary" style="font-weight: 800; font-size: 1rem; padding: 12px 28px; border-radius: 8px; box-shadow: 0 2px 6px rgba(37,99,235,0.3);" onclick="app.initScheduleTimeBlocks()">
+                  + Set Up Time Blocks
+                </button>
+              </td>
+            </tr>
+          `;
+        } else {
+          const skippedCells = {};
+          DAYS.forEach(d => { skippedCells[d.key] = new Set(); });
+
+          timeBlocks.forEach((tb, rowIdx) => {
+            const timeSlot = (tb.time || '').trim();
+            html += `<tr>`;
+            if (this.isScheduleEditMode) {
+              html += `
+                <td class="schedule-time-cell">
+                  <div style="display: flex; align-items: center; justify-content: center; gap: 4px;">
+                    <input 
+                      type="text" 
+                      id="timeBlockInput_${rowIdx}" 
+                      value="${this.escapeHtml(timeSlot)}" 
+                      class="schedule-time-input" 
+                      placeholder="e.g. 8:30-9:00"
+                      onchange="app.updateTimeBlockValue(${rowIdx}, this.value)"
+                      onkeydown="if(event.key === 'Enter') { event.preventDefault(); app.confirmTimeBlockAndAddNext(${rowIdx}, this.value); }"
+                    >
+                    <button 
+                      type="button" 
+                      class="btn-time-enter" 
+                      onclick="app.confirmTimeBlockAndAddNext(${rowIdx}, document.getElementById('timeBlockInput_${rowIdx}').value)" 
+                      title="Save and create next 30-min block (Enter)"
+                    >↵</button>
+                    <button 
+                      type="button" 
+                      class="btn-time-delete" 
+                      onclick="app.deleteTimeBlock(${rowIdx})" 
+                      title="Delete time block"
+                    >&times;</button>
+                  </div>
+                </td>
+              `;
+            } else {
+              html += `
+                <td class="schedule-time-cell" style="padding: 10px 14px; text-align: center; background: #ffffff;">
+                  <span style="font-weight: 700; font-size: 0.95rem; color: #1e293b;">${this.escapeHtml(timeSlot)}</span>
+                </td>
+              `;
+            }
+
+            DAYS.forEach(day => {
+              if (skippedCells[day.key].has(rowIdx)) {
+                return;
+              }
+
+              const matchingSlotEntries = [];
+              (this.classes || []).forEach(c => {
+                const slots = (Array.isArray(c.scheduleSlots) && c.scheduleSlots.length > 0)
+                  ? c.scheduleSlots 
+                  : [{ startBlockIdx: c.scheduleStartBlockIdx, blockCount: c.scheduleBlockCount, time: c.scheduleTime, days: c.scheduleDays }];
+
+                slots.forEach(slot => {
+                  const days = Array.isArray(slot.days) ? slot.days : [];
+                  const dayMatches = days.some(d => d.toLowerCase() === day.key.toLowerCase() || d.toLowerCase() === day.short.toLowerCase());
+                  if (!dayMatches) return;
+
+                  const startIdx = (typeof slot.startBlockIdx === 'number' && slot.startBlockIdx >= 0) ? slot.startBlockIdx : this.findSlotStartBlockIdx(slot);
+                  const isStart = (startIdx >= 0) ? (startIdx === rowIdx) : (slot.time && slot.time.trim() === timeSlot);
+                  if (isStart) {
+                    matchingSlotEntries.push({ c: c, slot: slot });
+                  }
+                });
+              });
+
+              if (matchingSlotEntries.length > 0) {
+                const maxSpan = Math.max(...matchingSlotEntries.map(entry => Math.max(1, entry.slot.blockCount || 1)));
+                const clampedSpan = Math.min(maxSpan, timeBlocks.length - rowIdx);
+
+                for (let r = 1; r < clampedSpan; r++) {
+                  skippedCells[day.key].add(rowIdx + r);
+                }
+
+                const rowspanAttr = clampedSpan > 1 ? ` rowspan="${clampedSpan}"` : '';
+
+                html += `<td${rowspanAttr} style="text-align: center; vertical-align: middle; padding: 8px;">`;
+                matchingSlotEntries.forEach(entry => {
+                  const c = entry.c;
+                  const isText = Boolean(c.isTextOnly || c.entryType === 'text');
+                  const theme = this.getClassColorTheme(c.color);
+                  const classNotes = (Array.isArray(c.scheduleNotes) ? c.scheduleNotes : []).filter(note => {
+                    if (!note || !note.text) return false;
+                    if (note.target === 'all') return true;
+                    const noteDays = Array.isArray(note.days) ? note.days : [];
+                    return noteDays.some(d => d.toLowerCase() === day.key.toLowerCase() || d.toLowerCase() === day.short.toLowerCase());
+                  });
+
+                  const clickAttr = isText ? '' : ` onclick="app.switchToClassFromSchedule('${c.id}')"`;
+                  const cursorStyle = isText ? 'cursor: default;' : 'cursor: pointer;';
+                  const titleAttr = isText ? `title="${this.escapeHtml(c.name)}"` : `title="Click to open ${this.escapeHtml(c.name)} in Seating Chart"`;
+
+                  html += `
+                    <div class="schedule-class-badge" style="background-color: ${theme.bg}; border-color: ${theme.border}; color: ${theme.text}; min-height: ${clampedSpan > 1 ? (clampedSpan * 52) + 'px' : 'auto'}; ${cursorStyle}" ${clickAttr} ${titleAttr}>
+                      <span class="schedule-class-title" style="color: ${theme.text}; font-size: ${clampedSpan > 1 ? '1rem' : '0.92rem'};">${this.escapeHtml(c.name)}</span>
+                      ${classNotes.map(n => `<span class="schedule-note-tag">${this.escapeHtml(n.text)}</span>`).join('')}
+                    </div>
+                  `;
+                });
+                html += `</td>`;
+              } else {
+                html += `<td style="text-align: center; vertical-align: middle; padding: 8px;"><span style="color: #cbd5e1; font-size: 0.9rem; user-select: none;">—</span></td>`;
+              }
+            });
+
+            html += `</tr>`;
+          });
+        }
+
+        html += `</tbody>`;
+
+        if (timeBlocks.length > 0 && this.isScheduleEditMode) {
+          html += `
+            <tfoot>
+              <tr>
+                <td style="padding: 8px 12px; text-align: center; background: #f8fafc; border-top: 1.5px solid #cbd5e1;">
+                  <button type="button" class="btn btn-outline" style="font-size: 0.8rem; font-weight: 700; padding: 4px 10px;" onclick="app.addTimeBlockAtEnd()" title="Add another 30-min time block">+ Add Block</button>
+                </td>
+                <td colspan="5" style="padding: 8px 12px; text-align: right; background: #f8fafc; border-top: 1.5px solid #cbd5e1;">
+                  <button type="button" style="background: none; border: none; color: #94a3b8; font-size: 0.78rem; font-weight: 600; cursor: pointer; text-decoration: underline;" onclick="app.clearAllScheduleTimeBlocks()">Reset Time Blocks</button>
+                </td>
+              </tr>
+            </tfoot>
+          `;
+        }
+
+        table.innerHTML = html;
+      }
+
+      switchToClassFromSchedule(classId) {
+        const target = (this.classes || []).find(c => c.id === classId);
+        if (!target || target.isTextOnly || target.entryType === 'text') return;
+        this.switchClass(classId);
+        this.switchViewMode('chart');
+      }
+
+      setScheduleEntryType(type) {
+        this.tempScheduleEntryType = (type === 'text') ? 'text' : 'class';
+        const classBtn = document.getElementById('toggleScheduleTypeClass');
+        const textBtn = document.getElementById('toggleScheduleTypeText');
+        const nameInput = document.getElementById('modalAddScheduleClassName');
+        
+        if (classBtn && textBtn) {
+          if (this.tempScheduleEntryType === 'text') {
+            classBtn.classList.remove('active');
+            textBtn.classList.add('active');
+            if (nameInput) nameInput.placeholder = 'Event name (e.g. Lunch, Prep, Duty, Meeting)...';
+          } else {
+            classBtn.classList.add('active');
+            textBtn.classList.remove('active');
+            if (nameInput) nameInput.placeholder = 'Class name (e.g. 3rd Grade Music)...';
+          }
+        }
+      }
+
+      populateNewClassTimeSelect() {
+        const select = document.getElementById('modalAddScheduleTimeSelect');
+        const minusBtn = document.getElementById('btnNewClassBlockMinus');
+        if (!select) return;
+
+        const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        if (blocks.length === 0) {
+          select.innerHTML = `<option value="-1">(No time blocks)</option>`;
+          if (minusBtn) minusBtn.style.display = 'none';
+          return;
+        }
+
+        const startIdx = (typeof this.tempNewClassStartBlockIdx === 'number' && this.tempNewClassStartBlockIdx >= 0 && this.tempNewClassStartBlockIdx < blocks.length) 
+          ? this.tempNewClassStartBlockIdx 
+          : 0;
+        const blockCount = Math.max(1, this.tempNewClassBlockCount || 1);
+
+        select.innerHTML = blocks.map((b, idx) => {
+          const isSelected = (idx === startIdx);
+          const label = (isSelected && blockCount > 1) 
+            ? `${this.getCombinedTimeRange(idx, blockCount)}` 
+            : b.time;
+          return `<option value="${idx}" ${isSelected ? 'selected' : ''}>${label}</option>`;
+        }).join('');
+
+        if (minusBtn) {
+          minusBtn.style.display = blockCount > 1 ? 'inline-flex' : 'none';
+        }
+      }
+
+      onNewClassTimeSelectChange() {
+        const select = document.getElementById('modalAddScheduleTimeSelect');
+        if (!select) return;
+        const val = parseInt(select.value, 10);
+        this.tempNewClassStartBlockIdx = val;
+        this.tempNewClassBlockCount = 1;
+        this.populateNewClassTimeSelect();
+      }
+
+      increaseNewClassBlockSpan() {
+        const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        if (blocks.length === 0) return;
+        const startIdx = (typeof this.tempNewClassStartBlockIdx === 'number' && this.tempNewClassStartBlockIdx >= 0) 
+          ? this.tempNewClassStartBlockIdx 
+          : 0;
+        const currentCount = Math.max(1, this.tempNewClassBlockCount || 1);
+        if (startIdx + currentCount < blocks.length) {
+          this.tempNewClassBlockCount = currentCount + 1;
+          this.tempNewClassStartBlockIdx = startIdx;
+          this.populateNewClassTimeSelect();
+        }
+      }
+
+      decreaseNewClassBlockSpan() {
+        const currentCount = Math.max(1, this.tempNewClassBlockCount || 1);
+        if (currentCount > 1) {
+          this.tempNewClassBlockCount = currentCount - 1;
+          this.populateNewClassTimeSelect();
+        }
+      }
+
+      openManageScheduleModal() {
+        this.tempScheduleClasses = JSON.parse(JSON.stringify(this.classes || []));
+        this.openScheduleNotesClassIndices = new Set();
+        this.manuallyExpandedScheduleClassIndices = new Set();
+        this.tempNewClassColor = '#059669';
+        this.tempNewClassStartBlockIdx = 0;
+        this.tempNewClassBlockCount = 1;
+
+        this.setScheduleEntryType('class');
+
+        const nameInput = document.getElementById('modalAddScheduleClassName');
+        const colorBtn = document.getElementById('modalAddScheduleColorBtn');
+        if (nameInput) nameInput.value = '';
+        if (colorBtn) colorBtn.style.backgroundColor = '#059669';
+
+        this.populateNewClassTimeSelect();
+
+        const daysContainer = document.getElementById('modalAddScheduleDaysContainer');
+        if (daysContainer) {
+          daysContainer.querySelectorAll('.day-pill-btn').forEach(btn => btn.classList.remove('active'));
+        }
+
+        this.renderManageScheduleList();
+        const modal = document.getElementById('manageScheduleModal');
+        if (modal) modal.classList.add('active');
+      }
+
+      isClassScheduleConfigured(c) {
+        if (!c) return false;
+        const slots = (Array.isArray(c.scheduleSlots) && c.scheduleSlots.length > 0)
+          ? c.scheduleSlots
+          : [{ startBlockIdx: c.scheduleStartBlockIdx, blockCount: c.scheduleBlockCount, time: c.scheduleTime, days: c.scheduleDays }];
+        return slots.some(s => (s.startBlockIdx >= 0 || (s.time && s.time.trim())) && Array.isArray(s.days) && s.days.length > 0);
+      }
+
+      getScheduleSummaryText(c) {
+        if (!c) return '';
+        const slots = (Array.isArray(c.scheduleSlots) && c.scheduleSlots.length > 0)
+          ? c.scheduleSlots
+          : [{ startBlockIdx: c.scheduleStartBlockIdx, blockCount: c.scheduleBlockCount, time: c.scheduleTime, days: c.scheduleDays }];
+        const validSlots = slots.filter(s => (s.startBlockIdx >= 0 || (s.time && s.time.trim())) && Array.isArray(s.days) && s.days.length > 0);
+        if (validSlots.length === 0) return '';
+        return validSlots.map(s => {
+          const daysStr = (s.days || []).map(d => d.substr(0, 3)).join('/');
+          return `${daysStr} ${s.time || ''}`.trim();
+        }).join(' • ');
+      }
+
+      toggleScheduleCardExpand(classIdx) {
+        if (!this.manuallyExpandedScheduleClassIndices) {
+          this.manuallyExpandedScheduleClassIndices = new Set();
+        }
+        if (this.manuallyExpandedScheduleClassIndices.has(classIdx)) {
+          this.manuallyExpandedScheduleClassIndices.delete(classIdx);
+        } else {
+          this.manuallyExpandedScheduleClassIndices.add(classIdx);
+        }
+        this.renderManageScheduleList();
+      }
+
+      toggleAddScheduleNewDay(btn) {
+        if (!btn) return;
+        btn.classList.toggle('active');
+      }
+
+      addScheduleClassFromModal() {
+        const nameInput = document.getElementById('modalAddScheduleClassName');
+        const name = (nameInput ? nameInput.value : '').trim();
+
+        if (!name) {
+          alert('Please enter a name.');
+          return;
+        }
+
+        const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        const startIdx = (typeof this.tempNewClassStartBlockIdx === 'number' && this.tempNewClassStartBlockIdx >= 0) 
+          ? this.tempNewClassStartBlockIdx 
+          : (blocks.length > 0 ? 0 : -1);
+        const blockCount = Math.max(1, this.tempNewClassBlockCount || 1);
+        const time = (startIdx >= 0 && blocks.length > 0) ? this.getCombinedTimeRange(startIdx, blockCount) : '';
+
+        const daysContainer = document.getElementById('modalAddScheduleDaysContainer');
+        const selectedDays = [];
+        if (daysContainer) {
+          daysContainer.querySelectorAll('.day-pill-btn.active').forEach(btn => {
+            selectedDays.push(btn.getAttribute('data-day'));
+          });
+        }
+
+        const isText = (this.tempScheduleEntryType === 'text');
+        const newColor = this.tempNewClassColor || (isText ? '#64748b' : '#059669');
+        const defaultSubjId = this.subjects[0] ? this.subjects[0].id : 'subj_music';
+        const rawClass = {
+          id: (isText ? 'text-' : 'class-') + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+          name: name,
+          entryType: isText ? 'text' : 'class',
+          isTextOnly: isText,
+          color: newColor,
+          scheduleTime: time,
+          scheduleStartBlockIdx: startIdx,
+          scheduleBlockCount: blockCount,
+          scheduleDays: selectedDays,
+          scheduleSlots: [
+            {
+              id: 'slot_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+              startBlockIdx: startIdx,
+              blockCount: blockCount,
+              time: time,
+              days: selectedDays
+            }
+          ],
+          scheduleNotes: [],
+          subjectId: defaultSubjId,
+          layout: 'rows',
+          rowsCount: 4,
+          rowAlignment: 'center',
+          showFirstName: true,
+          showLastName: false,
+          showFaces: true,
+          showInitials: true,
+          showGradesAttendanceRatio: true,
+          classList: [],
+          studentProfiles: {},
+          rows: Array.from({ length: 4 }, () => []),
+          lines: Array.from({ length: 4 }, () => []),
+          circle: [],
+          layoutsData: {
+            half: [[], []],
+            third: [[], []],
+            fourth: [[], [], []],
+            fifth: [[], [], [], []],
+            sixth: [[], [], [], [], [], []]
+          },
+          unplacedStudents: [],
+          attendanceDates: [],
+          subjectGrades: {
+            [defaultSubjId]: []
+          }
+        };
+
+        const newClass = this.sanitizeAndMigrateClass(rawClass, defaultSubjId);
+        this.tempScheduleClasses.unshift(newClass);
+
+        this.tempNewClassColor = '#059669';
+        this.tempNewClassStartBlockIdx = 0;
+        this.tempNewClassBlockCount = 1;
+        const colorBtn = document.getElementById('modalAddScheduleColorBtn');
+        if (colorBtn) colorBtn.style.backgroundColor = '#059669';
+
+        if (nameInput) nameInput.value = '';
+        this.populateNewClassTimeSelect();
+        if (daysContainer) {
+          daysContainer.querySelectorAll('.day-pill-btn').forEach(btn => btn.classList.remove('active'));
+        }
+
+        this.renderManageScheduleList();
+      }
+
+      addClassScheduleSlot(classIdx) {
+        if (!this.tempScheduleClasses[classIdx]) return;
+        const c = this.tempScheduleClasses[classIdx];
+        if (!Array.isArray(c.scheduleSlots)) {
+          c.scheduleSlots = [];
+        }
+        c.scheduleSlots.push({
+          id: 'slot_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+          startBlockIdx: -1,
+          blockCount: 1,
+          time: '',
+          days: []
+        });
+        this.renderManageScheduleList();
+      }
+
+      removeClassScheduleSlot(classIdx, slotIdx) {
+        if (!this.tempScheduleClasses[classIdx] || !Array.isArray(this.tempScheduleClasses[classIdx].scheduleSlots)) return;
+        const c = this.tempScheduleClasses[classIdx];
+        if (c.scheduleSlots.length > 1) {
+          c.scheduleSlots.splice(slotIdx, 1);
+          this.renderManageScheduleList();
+        }
+      }
+
+      onClassSlotTimeSelectChange(classIdx, slotIdx, val) {
+        if (!this.tempScheduleClasses[classIdx] || !this.tempScheduleClasses[classIdx].scheduleSlots) return;
+        const slot = this.tempScheduleClasses[classIdx].scheduleSlots[slotIdx];
+        if (!slot) return;
+
+        const bIdx = parseInt(val, 10);
+        const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        if (bIdx >= 0 && bIdx < blocks.length) {
+          slot.startBlockIdx = bIdx;
+          slot.blockCount = 1;
+          slot.time = blocks[bIdx].time;
+        } else {
+          slot.startBlockIdx = -1;
+          slot.blockCount = 1;
+          slot.time = '';
+        }
+        this.renderManageScheduleList();
+      }
+
+      increaseClassSlotBlockSpan(classIdx, slotIdx) {
+        if (!this.tempScheduleClasses[classIdx] || !this.tempScheduleClasses[classIdx].scheduleSlots) return;
+        const slot = this.tempScheduleClasses[classIdx].scheduleSlots[slotIdx];
+        if (!slot) return;
+        const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        if (blocks.length === 0) return;
+
+        let startIdx = (typeof slot.startBlockIdx === 'number' && slot.startBlockIdx >= 0) ? slot.startBlockIdx : this.findSlotStartBlockIdx(slot);
+        if (startIdx < 0) startIdx = 0;
+        let count = Math.max(1, slot.blockCount || 1);
+
+        if (startIdx + count < blocks.length) {
+          count += 1;
+          slot.startBlockIdx = startIdx;
+          slot.blockCount = count;
+          slot.time = this.getCombinedTimeRange(startIdx, count);
+          this.renderManageScheduleList();
+        }
+      }
+
+      decreaseClassSlotBlockSpan(classIdx, slotIdx) {
+        if (!this.tempScheduleClasses[classIdx] || !this.tempScheduleClasses[classIdx].scheduleSlots) return;
+        const slot = this.tempScheduleClasses[classIdx].scheduleSlots[slotIdx];
+        if (!slot) return;
+        const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        if (blocks.length === 0) return;
+
+        let startIdx = (typeof slot.startBlockIdx === 'number' && slot.startBlockIdx >= 0) ? slot.startBlockIdx : this.findSlotStartBlockIdx(slot);
+        if (startIdx < 0) startIdx = 0;
+        let count = Math.max(1, slot.blockCount || 1);
+
+        if (count > 1) {
+          count -= 1;
+          slot.startBlockIdx = startIdx;
+          slot.blockCount = count;
+          slot.time = this.getCombinedTimeRange(startIdx, count);
+          this.renderManageScheduleList();
+        }
+      }
+
+      toggleScheduleModalClassSlotDay(classIdx, slotIdx, dayKey) {
+        if (!this.tempScheduleClasses[classIdx] || !this.tempScheduleClasses[classIdx].scheduleSlots) return;
+        const slot = this.tempScheduleClasses[classIdx].scheduleSlots[slotIdx];
+        if (!slot) return;
+        if (!Array.isArray(slot.days)) slot.days = [];
+
+        const existsIdx = slot.days.findIndex(d => d.toLowerCase() === dayKey.toLowerCase());
+        if (existsIdx > -1) {
+          slot.days.splice(existsIdx, 1);
+        } else {
+          slot.days.push(dayKey);
+        }
+        this.renderManageScheduleList();
+      }
+
+      renderManageScheduleList() {
+        const container = document.getElementById('modalScheduleClassesList');
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (!this.tempScheduleClasses || this.tempScheduleClasses.length === 0) {
+          container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem; padding: 12px; text-align: center;">No classes available. Add a class above.</div>';
+          return;
+        }
+
+        const DAYS = [
+          { key: 'Monday', label: 'Mon' },
+          { key: 'Tuesday', label: 'Tue' },
+          { key: 'Wednesday', label: 'Wed' },
+          { key: 'Thursday', label: 'Thu' },
+          { key: 'Friday', label: 'Fri' }
+        ];
+
+        const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        if (!this.openScheduleNotesClassIndices) this.openScheduleNotesClassIndices = new Set();
+        if (!this.manuallyExpandedScheduleClassIndices) this.manuallyExpandedScheduleClassIndices = new Set();
+
+        this.tempScheduleClasses.forEach((c, idx) => {
+          const item = document.createElement('div');
+          item.style.display = 'flex';
+          item.style.flexDirection = 'column';
+          item.style.gap = '8px';
+          item.style.background = 'white';
+          item.style.padding = '10px 12px';
+          item.style.border = '1.5px solid var(--border-color)';
+          item.style.borderRadius = '8px';
+          item.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
+
+          const isText = Boolean(c.isTextOnly || c.entryType === 'text');
+          const notes = Array.isArray(c.scheduleNotes) ? c.scheduleNotes : [];
+          const hasNotes = notes.length > 0;
+          const isExpandedNotes = this.openScheduleNotesClassIndices.has(idx);
+
+          const isConfigured = this.isClassScheduleConfigured(c);
+          const isCardExpanded = !isConfigured || this.manuallyExpandedScheduleClassIndices.has(idx);
+
+          const slots = (Array.isArray(c.scheduleSlots) && c.scheduleSlots.length > 0)
+            ? c.scheduleSlots
+            : [{ id: 'slot_1', startBlockIdx: c.scheduleStartBlockIdx || -1, blockCount: c.scheduleBlockCount || 1, time: c.scheduleTime || '', days: c.scheduleDays || [] }];
+          c.scheduleSlots = slots;
+
+          if (!isCardExpanded) {
+            // Collapsed view for configured class
+            const summaryText = this.getScheduleSummaryText(c);
+            item.innerHTML = `
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <button type="button" class="btn btn-outline" style="padding: 1px 6px; font-size: 0.75rem;" onclick="app.moveScheduleModalClass(${idx}, -1)" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                  <button type="button" class="btn btn-outline" style="padding: 1px 6px; font-size: 0.75rem;" onclick="app.moveScheduleModalClass(${idx}, 1)" ${idx === this.tempScheduleClasses.length - 1 ? 'disabled' : ''}>▼</button>
+                </div>
+                <button type="button" class="schedule-color-circle-btn" style="background-color: ${c.color || '#059669'};" onclick="app.openScheduleColorPicker(${idx})" title="Change Color"></button>
+                ${isText ? `<span style="font-size: 0.72rem; font-weight: 800; background: #e2e8f0; color: #475569; padding: 3px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0;">Text</span>` : ''}
+                <input type="text" value="${this.escapeHtml(c.name || '')}" placeholder="Name..." style="flex: 1; font-weight: 700; font-size: 0.95rem; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px;" oninput="app.tempScheduleClasses[${idx}].name = this.value">
+                <button type="button" class="btn" style="background: var(--danger); color: white; padding: 5px 10px; font-size: 1.1rem; line-height: 1;" onclick="app.deleteScheduleModalClass(${idx})" title="Delete">&times;</button>
+              </div>
+
+              <div style="display: flex; justify-content: center; align-items: center; margin-top: -2px;">
+                <button type="button" class="btn-schedule-card-expand" onclick="app.toggleScheduleCardExpand(${idx})" title="Click to view and edit schedule">
+                  ${summaryText ? `<span style="font-size: 0.78rem; font-weight: 700; color: #475569;">${this.escapeHtml(summaryText)}</span>` : ''}
+                  <span style="font-size: 0.82rem; font-weight: 800; color: #2563eb;">⌄</span>
+                </button>
+              </div>
+            `;
+          } else {
+            // Expanded view
+            let slotsHtml = slots.map((slot, slotIdx) => {
+              const isLastSlot = (slotIdx === slots.length - 1);
+              const startIdx = (typeof slot.startBlockIdx === 'number' && slot.startBlockIdx >= 0) ? slot.startBlockIdx : this.findSlotStartBlockIdx(slot);
+              const blockCount = Math.max(1, slot.blockCount || 1);
+              const currentDays = Array.isArray(slot.days) ? slot.days : [];
+
+              let timeSelectHtml = '';
+              if (blocks.length === 0) {
+                timeSelectHtml = `<option value="-1">(No time blocks)</option>`;
+              } else {
+                timeSelectHtml = `<option value="-1" ${startIdx === -1 ? 'selected' : ''}>Set Time</option>` + blocks.map((b, bIdx) => {
+                  const isSelected = (bIdx === startIdx);
+                  const label = (isSelected && blockCount > 1) 
+                    ? `${this.getCombinedTimeRange(bIdx, blockCount)}` 
+                    : b.time;
+                  return `<option value="${bIdx}" ${isSelected ? 'selected' : ''}>${label}</option>`;
+                }).join('');
+              }
+
+              return `
+                <div style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; position: relative;">
+                  ${isLastSlot ? `
+                    <div style="position: absolute; left: 0; display: flex; align-items: center;">
+                      <button type="button" class="btn-schedule-note-toggle ${hasNotes ? 'has-notes' : ''} ${isExpandedNotes ? 'open' : ''}" onclick="app.toggleScheduleClassNotesDrawer(${idx})" title="${isExpandedNotes ? 'Hide Notes' : 'Show / Add Notes'}">
+                        ${isExpandedNotes ? '▲' : '▼'}
+                      </button>
+                    </div>
+                  ` : ''}
+
+                  <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+                    <select class="schedule-modal-time-select" onchange="app.onClassSlotTimeSelectChange(${idx}, ${slotIdx}, this.value)">
+                      ${timeSelectHtml}
+                    </select>
+                    <button type="button" class="btn-block-combine" onclick="app.increaseClassSlotBlockSpan(${idx}, ${slotIdx})" title="Combine next time block">+</button>
+                    ${blockCount > 1 ? `<button type="button" class="btn-block-combine" onclick="app.decreaseClassSlotBlockSpan(${idx}, ${slotIdx})" title="Reduce time block">−</button>` : ''}
+
+                    <div style="display: flex; align-items: center; gap: 3px; margin-left: 6px;">
+                      ${DAYS.map(d => {
+                        const isActive = currentDays.some(cd => cd.toLowerCase() === d.key.toLowerCase() || cd.toLowerCase() === d.label.toLowerCase());
+                        return `<button type="button" class="day-pill-btn ${isActive ? 'active' : ''}" onclick="app.toggleScheduleModalClassSlotDay(${idx}, ${slotIdx}, '${d.key}')">${d.label}</button>`;
+                      }).join('')}
+                    </div>
+
+                    <button type="button" class="btn-time-enter" onclick="app.addClassScheduleSlot(${idx})" title="Add another time slot for this class" style="margin-left: 4px;">↵</button>
+                    ${slots.length > 1 ? `
+                      <button type="button" class="btn-time-delete" onclick="app.removeClassScheduleSlot(${idx}, ${slotIdx})" title="Remove this time slot">&times;</button>
+                    ` : ''}
+                  </div>
+                </div>
+              `;
+            }).join('');
+
+            item.innerHTML = `
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <button type="button" class="btn btn-outline" style="padding: 1px 6px; font-size: 0.75rem;" onclick="app.moveScheduleModalClass(${idx}, -1)" ${idx === 0 ? 'disabled' : ''}>▲</button>
+                  <button type="button" class="btn btn-outline" style="padding: 1px 6px; font-size: 0.75rem;" onclick="app.moveScheduleModalClass(${idx}, 1)" ${idx === this.tempScheduleClasses.length - 1 ? 'disabled' : ''}>▼</button>
+                </div>
+                <button type="button" class="schedule-color-circle-btn" style="background-color: ${c.color || '#059669'};" onclick="app.openScheduleColorPicker(${idx})" title="Change Color"></button>
+                ${isText ? `<span style="font-size: 0.72rem; font-weight: 800; background: #e2e8f0; color: #475569; padding: 3px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0;">Text</span>` : ''}
+                <input type="text" value="${this.escapeHtml(c.name || '')}" placeholder="Name..." style="flex: 1; font-weight: 700; font-size: 0.95rem; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px;" oninput="app.tempScheduleClasses[${idx}].name = this.value">
+                <button type="button" class="btn" style="background: var(--danger); color: white; padding: 5px 10px; font-size: 1.1rem; line-height: 1;" onclick="app.deleteScheduleModalClass(${idx})" title="Delete">&times;</button>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 6px; padding-left: 28px; width: 100%; box-sizing: border-box;">
+                ${slotsHtml}
+              </div>
+
+              ${isExpandedNotes ? `
+                <div class="schedule-notes-drawer" style="margin-top: 4px; padding: 10px 12px; background: #f8fafc; border-radius: 8px; border: 1.5px dashed #cbd5e1; display: flex; flex-direction: column; gap: 8px;">
+                  ${hasNotes ? `
+                    <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 2px;">
+                      <div style="font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.3px;">Notes:</div>
+                      ${notes.map((note, noteIdx) => `
+                        <div style="display: flex; align-items: center; justify-content: space-between; background: white; padding: 5px 8px; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.82rem;">
+                          <div>
+                            <span style="font-weight: 700; color: #1e293b;">${this.escapeHtml(note.text)}</span>
+                            <span style="color: #64748b; font-size: 0.75rem; margin-left: 6px;">(${note.target === 'all' ? 'Every class' : (note.days || []).join(', ')})</span>
+                          </div>
+                          <button type="button" style="background: none; border: none; color: #ef4444; font-weight: bold; cursor: pointer; padding: 0 4px; font-size: 1rem; line-height: 1;" onclick="app.deleteScheduleNote(${idx}, ${noteIdx})" title="Delete Note">&times;</button>
+                        </div>
+                      `).join('')}
+                    </div>
+                  ` : ''}
+
+                  <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <div style="font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.3px;">+ Add Additional Text / Note:</div>
+                    <input type="text" id="noteInput_${idx}" placeholder="Enter additional text (e.g. Choir, Recorders, etc.)..." style="width: 100%; box-sizing: border-box; padding: 6px 10px; font-size: 0.85rem; border: 1px solid #cbd5e1; border-radius: 6px;" onkeydown="if(event.key === 'Enter') app.addScheduleNoteToClass(${idx})">
+                    
+                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.82rem; color: #334155; margin-top: 2px;">
+                      <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-weight: 600;">
+                          <input type="radio" name="noteTarget_${idx}" value="all" checked onchange="app.handleNoteTargetChange(${idx}, 'all')">
+                          <span>Add to every class</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-weight: 600;">
+                          <input type="radio" name="noteTarget_${idx}" value="specific" onchange="app.handleNoteTargetChange(${idx}, 'specific')">
+                          <span>Add only to:</span>
+                        </label>
+                      </div>
+
+                      <div id="noteDaysContainer_${idx}" style="display: none; gap: 4px; margin-top: 2px; flex-wrap: wrap;">
+                        ${DAYS.map(d => `
+                          <button type="button" class="day-pill-btn" data-day="${d.key}" onclick="app.toggleNoteDayPill(this)">${d.label}</button>
+                        `).join('')}
+                      </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
+                      <button type="button" class="btn btn-primary" style="padding: 5px 12px; font-size: 0.82rem; font-weight: bold;" onclick="app.addScheduleNoteToClass(${idx})">Add Note</button>
+                    </div>
+                  </div>
+                </div>
+              ` : ''}
+
+              ${isConfigured ? `
+                <div style="display: flex; justify-content: center; align-items: center; margin-top: 2px;">
+                  <button type="button" class="btn-schedule-card-expand" onclick="app.toggleScheduleCardExpand(${idx})" title="Collapse schedule card" style="padding: 1px 12px; font-size: 0.75rem;">
+                    <span style="font-size: 0.75rem; font-weight: 800; color: #64748b;">⌃ Collapse</span>
+                  </button>
+                </div>
+              ` : ''}
+            `;
+          }
+
+          container.appendChild(item);
+        });
+      }
+
+      toggleScheduleClassNotesDrawer(classIdx) {
+        if (!this.openScheduleNotesClassIndices) this.openScheduleNotesClassIndices = new Set();
+        if (this.openScheduleNotesClassIndices.has(classIdx)) {
+          this.openScheduleNotesClassIndices.delete(classIdx);
+        } else {
+          this.openScheduleNotesClassIndices.add(classIdx);
+        }
+        this.renderManageScheduleList();
+      }
+
+      toggleNoteDayPill(btn) {
+        if (!btn) return;
+        btn.classList.toggle('active');
+      }
+
+      handleNoteTargetChange(classIdx, targetVal) {
+        const container = document.getElementById(`noteDaysContainer_${classIdx}`);
+        if (container) {
+          container.style.display = (targetVal === 'specific') ? 'flex' : 'none';
+        }
+      }
+
+      addScheduleNoteToClass(classIdx) {
+        if (!this.tempScheduleClasses[classIdx]) return;
+        const input = document.getElementById(`noteInput_${classIdx}`);
+        const text = input ? input.value.trim() : '';
+        if (!text) {
+          alert('Please enter text for the note.');
+          return;
+        }
+
+        const radio = document.querySelector(`input[name="noteTarget_${classIdx}"]:checked`);
+        const targetVal = radio ? radio.value : 'all';
+
+        const selectedDays = [];
+        if (targetVal === 'specific') {
+          const daysContainer = document.getElementById(`noteDaysContainer_${classIdx}`);
+          if (daysContainer) {
+            daysContainer.querySelectorAll('.day-pill-btn.active').forEach(btn => {
+              selectedDays.push(btn.getAttribute('data-day'));
+            });
+          }
+          if (selectedDays.length === 0) {
+            alert('Please select at least one day for this note, or choose "Add to every class".');
+            return;
+          }
+        }
+
+        if (!Array.isArray(this.tempScheduleClasses[classIdx].scheduleNotes)) {
+          this.tempScheduleClasses[classIdx].scheduleNotes = [];
+        }
+
+        this.tempScheduleClasses[classIdx].scheduleNotes.push({
+          id: 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+          text: text,
+          target: targetVal,
+          days: selectedDays
+        });
+
+        if (!this.openScheduleNotesClassIndices) this.openScheduleNotesClassIndices = new Set();
+        this.openScheduleNotesClassIndices.add(classIdx);
+
+        this.renderManageScheduleList();
+      }
+
+      deleteScheduleNote(classIdx, noteIdx) {
+        if (!this.tempScheduleClasses[classIdx] || !Array.isArray(this.tempScheduleClasses[classIdx].scheduleNotes)) return;
+        this.tempScheduleClasses[classIdx].scheduleNotes.splice(noteIdx, 1);
+        this.renderManageScheduleList();
+      }
+
+      toggleScheduleModalClassDay(classIdx, dayKey) {
+        if (!this.tempScheduleClasses[classIdx]) return;
+        if (!Array.isArray(this.tempScheduleClasses[classIdx].scheduleDays)) {
+          this.tempScheduleClasses[classIdx].scheduleDays = [];
+        }
+        const days = this.tempScheduleClasses[classIdx].scheduleDays;
+        const existsIdx = days.findIndex(d => d.toLowerCase() === dayKey.toLowerCase());
+        if (existsIdx > -1) {
+          days.splice(existsIdx, 1);
+        } else {
+          days.push(dayKey);
+        }
+        this.renderManageScheduleList();
+      }
+
+      moveScheduleModalClass(index, delta) {
+        const targetIndex = index + delta;
+        if (targetIndex >= 0 && targetIndex < this.tempScheduleClasses.length) {
+          const item = this.tempScheduleClasses.splice(index, 1)[0];
+          this.tempScheduleClasses.splice(targetIndex, 0, item);
+          this.renderManageScheduleList();
+        }
+      }
+
+      deleteScheduleModalClass(index) {
+        if (confirm(`Are you sure you want to delete "${this.tempScheduleClasses[index].name}"?`)) {
+          this.tempScheduleClasses.splice(index, 1);
+          this.renderManageScheduleList();
+        }
+      }
+
+      saveCustomColors() {
+        if (Array.isArray(this.customPaletteColors)) {
+          localStorage.setItem('classPlanner_customColors_v1', JSON.stringify(this.customPaletteColors));
+        }
+      }
+
+      renderScheduleColorSwatches() {
+        const container = document.getElementById('scheduleColorPickerSwatches');
+        if (!container) return;
+
+        const currentColor = (this.selectedColorPickerHex || '#059669').toLowerCase();
+        const palette = this.getClassPalette();
+        const customColors = Array.isArray(this.customPaletteColors) ? this.customPaletteColors : [null, null, null, null];
+
+        let html = '';
+
+        // 12 Standard swatches
+        palette.forEach(p => {
+          const isSelected = p.hex.toLowerCase() === currentColor;
+          html += `
+            <div class="color-swatch-item ${isSelected ? 'selected' : ''}" style="background-color: ${p.hex};" onclick="app.selectColorSwatch('${p.hex}')" title="${p.name}">
+              ${isSelected ? '✓' : ''}
+            </div>
+          `;
+        });
+
+        // 4 Custom swatches in row 4
+        customColors.forEach((customHex, slotIdx) => {
+          if (!customHex) {
+            html += `
+              <div class="color-swatch-item custom-swatch blank" onclick="app.onCustomSwatchClick(${slotIdx})" title="Click to choose a custom color">
+                <span style="font-size: 0.95rem; color: #94a3b8; font-weight: 800;">+</span>
+              </div>
+            `;
+          } else {
+            const isSelected = customHex.toLowerCase() === currentColor;
+            html += `
+              <div class="color-swatch-item custom-swatch ${isSelected ? 'selected' : ''}" style="background-color: ${customHex};" onclick="app.onCustomSwatchClick(${slotIdx})" ondblclick="app.openCustomColorSpectrum(${slotIdx})" title="Click to select, double-click to change color">
+                ${isSelected ? '✓' : ''}
+              </div>
+            `;
+          }
+        });
+
+        container.innerHTML = html;
+      }
+
+      openScheduleColorPicker(targetIdx) {
+        this.colorPickerTarget = targetIdx;
+        let currentColor = '#059669';
+        if (targetIdx === 'new') {
+          currentColor = this.tempNewClassColor || '#059669';
+        } else if (typeof targetIdx === 'number' && this.tempScheduleClasses[targetIdx]) {
+          currentColor = this.tempScheduleClasses[targetIdx].color || '#059669';
+        }
+        this.selectedColorPickerHex = currentColor;
+
+        this.renderScheduleColorSwatches();
+
+        const modal = document.getElementById('scheduleColorPickerModal');
+        if (modal) modal.classList.add('active');
+      }
+
+      selectColorSwatch(hex) {
+        this.selectedColorPickerHex = hex;
+        this.renderScheduleColorSwatches();
+      }
+
+      onCustomSwatchClick(slotIdx) {
+        if (!Array.isArray(this.customPaletteColors)) {
+          this.customPaletteColors = [null, null, null, null];
+        }
+        const customHex = this.customPaletteColors[slotIdx];
+        if (!customHex) {
+          this.openCustomColorSpectrum(slotIdx);
+        } else {
+          this.selectColorSwatch(customHex);
+        }
+      }
+
+      openCustomColorSpectrum(slotIdx) {
+        this.activeCustomColorSlot = slotIdx;
+        const input = document.getElementById('scheduleCustomColorInput');
+        if (input) {
+          const currentSlotHex = (this.customPaletteColors && this.customPaletteColors[slotIdx]) 
+            ? this.customPaletteColors[slotIdx] 
+            : (this.selectedColorPickerHex || '#0055FF');
+          input.value = currentSlotHex.startsWith('#') && currentSlotHex.length === 7 ? currentSlotHex : '#0055FF';
+          input.click();
+        }
+      }
+
+      onCustomColorSpectrumSelected(newHex) {
+        if (!newHex) return;
+        if (!Array.isArray(this.customPaletteColors)) {
+          this.customPaletteColors = [null, null, null, null];
+        }
+        if (typeof this.activeCustomColorSlot === 'number' && this.activeCustomColorSlot >= 0 && this.activeCustomColorSlot < 4) {
+          this.customPaletteColors[this.activeCustomColorSlot] = newHex;
+          this.saveCustomColors();
+          this.selectedColorPickerHex = newHex;
+          this.renderScheduleColorSwatches();
+        }
+      }
+
+      confirmScheduleColorPicker() {
+        const hex = this.selectedColorPickerHex || '#059669';
+        if (this.colorPickerTarget === 'new') {
+          this.tempNewClassColor = hex;
+          const btn = document.getElementById('modalAddScheduleColorBtn');
+          if (btn) btn.style.backgroundColor = hex;
+        } else if (typeof this.colorPickerTarget === 'number' && this.tempScheduleClasses[this.colorPickerTarget]) {
+          this.tempScheduleClasses[this.colorPickerTarget].color = hex;
+          this.renderManageScheduleList();
+        }
+        this.closeModal('scheduleColorPickerModal');
+      }
+
+      saveManageSchedule() {
+        if (!this.tempScheduleClasses || this.tempScheduleClasses.length === 0) {
+          alert('You must have at least one class.');
+          return;
+        }
+
+        if (this.tempScheduleClasses.some(c => !c.name || !c.name.trim())) {
+          alert('Class names cannot be empty.');
+          return;
+        }
+
+        const defaultSubjId = this.subjects[0] ? this.subjects[0].id : 'subj_music';
+        this.classes = this.tempScheduleClasses.map(c => this.sanitizeAndMigrateClass(c, defaultSubjId)).filter(Boolean);
+
+        if (!this.classes.some(c => c.id === this.currentClassId)) {
+          this.currentClassId = this.classes[0].id;
+        }
+
+        this.saveData();
+        this.renderClassDropdown();
+        this.closeModal('manageScheduleModal');
+
+        if (this.currentViewMode === 'schedule') {
+          this.renderScheduleTable();
+        } else if (this.currentViewMode === 'attendance') {
+          this.renderAttendanceTable();
+        } else if (this.currentViewMode === 'grades') {
+          this.renderGradesTable();
+        } else {
+          this.render();
+        }
+      }
+
+      triggerScheduleCameraClick(btnEl) {
+        if (typeof html2canvas === 'undefined') {
+          alert('Snapshot library is loading. Please try again in a moment.');
+          return;
+        }
+
+        const container = document.querySelector('#scheduleAppBody .panel') || document.getElementById('scheduleTable');
+        if (!container) return;
+
+        if (btnEl) {
+          btnEl.style.transform = 'scale(0.9)';
+          setTimeout(() => { btnEl.style.transform = ''; }, 150);
+        }
+
+        html2canvas(container, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          logging: false,
+          useCORS: true
+        }).then(canvas => {
+          const now = new Date();
+          const dateStr = now.toISOString().split('T')[0];
+          const filename = `ClassSchedule_${dateStr}.png`;
+
+          const link = document.createElement('a');
+          link.download = filename;
+          link.href = canvas.toDataURL('image/png');
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }).catch(err => {
+          console.error('Error generating schedule snapshot:', err);
+          alert('Failed to capture snapshot of the schedule.');
+        });
       }
 
       populateSettingsSubjectDropdown() {
@@ -5576,10 +7098,12 @@ class SeatingChartApp {
         const selectAtt = document.getElementById('attendanceClassSelect');
         const selectGrades = document.getElementById('gradesClassSelect');
 
+        const actualClasses = (this.classes || []).filter(c => !c.isTextOnly && c.entryType !== 'text');
+
         [selectHeader, selectFS, selectAtt, selectGrades].forEach(select => {
           if (!select) return;
           select.innerHTML = '';
-          this.classes.forEach(c => {
+          actualClasses.forEach(c => {
             const opt = document.createElement('option');
             opt.value = c.id;
             opt.textContent = c.name;
