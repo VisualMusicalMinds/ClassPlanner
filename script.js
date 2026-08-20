@@ -39,7 +39,19 @@ class SeatingChartApp {
           }
         ];
         this.tempSubjects = [];
+        this.schedules = [
+          {
+            id: 'sched_regular',
+            name: 'Regular Schedule',
+            timeBlocks: []
+          }
+        ];
+        this.currentScheduleId = 'sched_regular';
+        this.tempSchedules = [];
+        this.tempSelectedScheduleId = 'sched_regular';
         this.scheduleTimeBlocks = [];
+        this.isCalendarSyncEnabled = false;
+        this.calendarSyncWeekOffset = 0;
 
         this.init();
       }
@@ -98,6 +110,8 @@ class SeatingChartApp {
         });
 
         this.renderClassDropdown();
+        this.renderScheduleDropdown();
+        this.updateCalendarSyncUI();
         this.render();
       }
 
@@ -273,14 +287,139 @@ class SeatingChartApp {
       }
 
       saveData() {
+        // Sync active schedule time blocks before saving
+        const currentSched = this.getCurrentSchedule();
+        if (currentSched) {
+          currentSched.timeBlocks = this.scheduleTimeBlocks || [];
+        }
+
         localStorage.setItem('classPlanner_data_v6', JSON.stringify(this.classes));
         localStorage.setItem('classPlanner_currentId_v6', this.currentClassId || '');
         localStorage.setItem('classPlanner_appName', this.appName || 'ClassPlanner');
         localStorage.setItem('classPlanner_subjects_v1', JSON.stringify(this.subjects));
+        localStorage.setItem('classPlanner_schedules_v1', JSON.stringify(this.schedules || []));
+        localStorage.setItem('classPlanner_currentScheduleId_v1', this.currentScheduleId || '');
         localStorage.setItem('classPlanner_scheduleTimeBlocks_v1', JSON.stringify(this.scheduleTimeBlocks || []));
+        localStorage.setItem('classPlanner_calendarSync_v1', this.isCalendarSyncEnabled ? 'true' : 'false');
         localStorage.setItem('seatingApp_appName', this.appName || 'ClassPlanner');
         localStorage.setItem('seatingApp_gradingStyle', this.gradingStyle || 'informal');
         localStorage.setItem('seatingApp_suppressRemoveStudentWarning', this.suppressRemoveStudentWarning.toString());
+      }
+
+      getCurrentSchedule() {
+        if (!Array.isArray(this.schedules) || this.schedules.length === 0) {
+          this.schedules = [
+            {
+              id: 'sched_regular',
+              name: 'Regular Schedule',
+              timeBlocks: Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : []
+            }
+          ];
+          this.currentScheduleId = 'sched_regular';
+        }
+        let found = this.schedules.find(s => s.id === this.currentScheduleId);
+        if (!found) {
+          this.currentScheduleId = this.schedules[0].id;
+          found = this.schedules[0];
+        }
+        if (!Array.isArray(found.timeBlocks)) found.timeBlocks = [];
+        return found;
+      }
+
+      renderScheduleDropdown() {
+        const scheduleSelect = document.getElementById('scheduleSelect');
+        const fsScheduleSelect = document.getElementById('fullscreenScheduleSelect');
+        const modalScheduleSelect = document.getElementById('modalScheduleSelect');
+
+        const optionsHtml = (this.schedules || []).map(s => {
+          const isSelected = (s.id === this.currentScheduleId);
+          return `<option value="${s.id}" ${isSelected ? 'selected' : ''}>${this.escapeHtml(s.name)}</option>`;
+        }).join('');
+
+        if (scheduleSelect) {
+          scheduleSelect.innerHTML = optionsHtml;
+          scheduleSelect.value = this.currentScheduleId;
+        }
+        if (fsScheduleSelect) {
+          fsScheduleSelect.innerHTML = optionsHtml;
+          fsScheduleSelect.value = this.currentScheduleId;
+        }
+        if (modalScheduleSelect) {
+          const modalOptionsHtml = (this.tempSchedules || this.schedules || []).map(s => {
+            const isSelected = (s.id === (this.tempSelectedScheduleId || this.currentScheduleId));
+            return `<option value="${s.id}" ${isSelected ? 'selected' : ''}>${this.escapeHtml(s.name)}</option>`;
+          }).join('');
+          modalScheduleSelect.innerHTML = modalOptionsHtml;
+          modalScheduleSelect.value = this.tempSelectedScheduleId || this.currentScheduleId;
+        }
+      }
+
+      switchSchedule(scheduleId) {
+        if (!scheduleId || !this.schedules.some(s => s.id === scheduleId)) return;
+        this.currentScheduleId = scheduleId;
+        const activeSched = this.getCurrentSchedule();
+        this.scheduleTimeBlocks = activeSched.timeBlocks || [];
+        this.saveData();
+        this.renderScheduleDropdown();
+        this.renderScheduleTable();
+      }
+
+      getClassScheduleSlots(c, scheduleId = null) {
+        if (!c) return [];
+        const sId = scheduleId || this.currentScheduleId || (this.schedules[0] ? this.schedules[0].id : 'sched_regular');
+        if (c.schedules && c.schedules[sId] && Array.isArray(c.schedules[sId].scheduleSlots) && c.schedules[sId].scheduleSlots.length > 0) {
+          return c.schedules[sId].scheduleSlots;
+        }
+        if (Array.isArray(c.scheduleSlots) && c.scheduleSlots.length > 0) {
+          return c.scheduleSlots;
+        }
+        return [{
+          id: 'slot_1',
+          startBlockIdx: (typeof c.scheduleStartBlockIdx === 'number') ? c.scheduleStartBlockIdx : -1,
+          blockCount: (typeof c.scheduleBlockCount === 'number') ? c.scheduleBlockCount : 1,
+          time: c.scheduleTime || '',
+          days: Array.isArray(c.scheduleDays) ? c.scheduleDays : []
+        }];
+      }
+
+      setClassScheduleSlots(slots, c, scheduleId = null) {
+        if (!c) return;
+        const sId = scheduleId || this.currentScheduleId || (this.schedules[0] ? this.schedules[0].id : 'sched_regular');
+        if (!c.schedules || typeof c.schedules !== 'object') c.schedules = {};
+        if (!c.schedules[sId]) c.schedules[sId] = {};
+        c.schedules[sId].scheduleSlots = slots;
+        if (sId === this.currentScheduleId) {
+          c.scheduleSlots = slots;
+          if (slots[0]) {
+            c.scheduleTime = slots[0].time;
+            c.scheduleDays = slots[0].days;
+            c.scheduleStartBlockIdx = slots[0].startBlockIdx;
+            c.scheduleBlockCount = slots[0].blockCount;
+          }
+        }
+      }
+
+      getClassScheduleNotes(c, scheduleId = null) {
+        if (!c) return [];
+        const sId = scheduleId || this.currentScheduleId || (this.schedules[0] ? this.schedules[0].id : 'sched_regular');
+        if (c.schedules && c.schedules[sId] && Array.isArray(c.schedules[sId].scheduleNotes)) {
+          return c.schedules[sId].scheduleNotes;
+        }
+        if (Array.isArray(c.scheduleNotes)) {
+          return c.scheduleNotes;
+        }
+        return [];
+      }
+
+      setClassScheduleNotes(notes, c, scheduleId = null) {
+        if (!c) return;
+        const sId = scheduleId || this.currentScheduleId || (this.schedules[0] ? this.schedules[0].id : 'sched_regular');
+        if (!c.schedules || typeof c.schedules !== 'object') c.schedules = {};
+        if (!c.schedules[sId]) c.schedules[sId] = {};
+        c.schedules[sId].scheduleNotes = notes;
+        if (sId === this.currentScheduleId) {
+          c.scheduleNotes = notes;
+        }
       }
 
       sanitizeAndMigrateClass(c, defaultSubjId = 'subj_music') {
@@ -387,6 +526,10 @@ class SeatingChartApp {
         if (!Array.isArray(c.circle)) c.circle = [...c.classList];
         else c.circle = c.circle.map(s => String(s).trim()).filter(Boolean);
 
+        if (!Array.isArray(c.freeform)) c.freeform = [...c.classList];
+        else c.freeform = c.freeform.map(s => String(s).trim()).filter(Boolean);
+        if (!c.freeformPositions || typeof c.freeformPositions !== 'object') c.freeformPositions = {};
+
         if (!c.layoutsData || typeof c.layoutsData !== 'object') c.layoutsData = {};
         ['half', 'third', 'fourth', 'fifth', 'sixth'].forEach((layoutKey, idx) => {
           const numGroups = idx + 2;
@@ -397,7 +540,11 @@ class SeatingChartApp {
           }
         });
 
-        // Schedule information
+        // Schedule information (Top-level & per-schedule)
+        if (!c.schedules || typeof c.schedules !== 'object') {
+          c.schedules = {};
+        }
+
         if (typeof c.scheduleTime !== 'string') c.scheduleTime = '';
         if (!Array.isArray(c.scheduleDays)) c.scheduleDays = [];
         else c.scheduleDays = c.scheduleDays.map(d => String(d).trim()).filter(Boolean);
@@ -457,6 +604,54 @@ class SeatingChartApp {
           c.scheduleBlockCount = c.scheduleSlots[0].blockCount;
         }
 
+        // Migrate or sanitize all schedule entries in c.schedules
+        const primarySchedId = this.currentScheduleId || 'sched_regular';
+        if (!c.schedules[primarySchedId] || !Array.isArray(c.schedules[primarySchedId].scheduleSlots) || c.schedules[primarySchedId].scheduleSlots.length === 0) {
+          c.schedules[primarySchedId] = {
+            scheduleSlots: JSON.parse(JSON.stringify(c.scheduleSlots)),
+            scheduleNotes: JSON.parse(JSON.stringify(c.scheduleNotes))
+          };
+        }
+
+        Object.keys(c.schedules).forEach(schedId => {
+          const entry = c.schedules[schedId];
+          if (!entry || typeof entry !== 'object') {
+            c.schedules[schedId] = { scheduleSlots: [], scheduleNotes: [] };
+            return;
+          }
+          if (!Array.isArray(entry.scheduleSlots)) entry.scheduleSlots = [];
+          entry.scheduleSlots = entry.scheduleSlots.map(s => {
+            if (!s || typeof s !== 'object') return null;
+            return {
+              id: s.id || ('slot_' + Math.random().toString(36).substr(2, 4)),
+              startBlockIdx: typeof s.startBlockIdx === 'number' ? s.startBlockIdx : -1,
+              blockCount: typeof s.blockCount === 'number' && s.blockCount >= 1 ? s.blockCount : 1,
+              time: typeof s.time === 'string' ? s.time.trim() : '',
+              days: Array.isArray(s.days) ? s.days.map(d => String(d).trim()).filter(Boolean) : []
+            };
+          }).filter(Boolean);
+          if (entry.scheduleSlots.length === 0) {
+            entry.scheduleSlots = [{
+              id: 'slot_1',
+              startBlockIdx: -1,
+              blockCount: 1,
+              time: '',
+              days: []
+            }];
+          }
+
+          if (!Array.isArray(entry.scheduleNotes)) entry.scheduleNotes = [];
+          entry.scheduleNotes = entry.scheduleNotes.map(n => {
+            if (!n || typeof n !== 'object') return null;
+            return {
+              id: n.id || ('note_' + Math.random().toString(36).substr(2, 4)),
+              text: typeof n.text === 'string' ? n.text.trim() : '',
+              target: (n.target === 'specific') ? 'specific' : 'all',
+              days: Array.isArray(n.days) ? n.days.map(d => String(d).trim()).filter(Boolean) : []
+            };
+          }).filter(n => n && n.text);
+        });
+
         if (typeof c.color !== 'string' || !c.color.trim()) c.color = '#059669';
 
         if (c.entryType === 'text' || c.isTextOnly === true) {
@@ -475,11 +670,18 @@ class SeatingChartApp {
         const savedId = localStorage.getItem('classPlanner_currentId_v6') || localStorage.getItem('seatingChartApp_currentClassId');
         const savedAppName = localStorage.getItem('classPlanner_appName') || localStorage.getItem('seatingApp_appName');
         const savedSubjects = localStorage.getItem('classPlanner_subjects_v1');
+        const savedSchedules = localStorage.getItem('classPlanner_schedules_v1');
+        const savedScheduleId = localStorage.getItem('classPlanner_currentScheduleId_v1');
+        const savedCalendarSync = localStorage.getItem('classPlanner_calendarSync_v1');
         const savedGradingStyle = localStorage.getItem('seatingApp_gradingStyle');
         const savedSuppressWarning = localStorage.getItem('seatingApp_suppressRemoveStudentWarning');
 
         if (savedAppName) {
           this.appName = savedAppName;
+        }
+
+        if (savedCalendarSync !== null) {
+          this.isCalendarSyncEnabled = (savedCalendarSync === 'true');
         }
 
         if (savedGradingStyle) {
@@ -521,6 +723,44 @@ class SeatingChartApp {
         } else {
           this.scheduleTimeBlocks = [];
         }
+
+        if (savedSchedules) {
+          try {
+            const parsedSched = JSON.parse(savedSchedules);
+            if (Array.isArray(parsedSched) && parsedSched.length > 0) {
+              this.schedules = parsedSched.map(s => {
+                if (!s || typeof s !== 'object') return null;
+                return {
+                  id: s.id || ('sched_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4)),
+                  name: s.name || 'Regular Schedule',
+                  timeBlocks: Array.isArray(s.timeBlocks) ? s.timeBlocks : []
+                };
+              }).filter(Boolean);
+            }
+          } catch (e) {
+            console.error('Error loading saved schedules:', e);
+          }
+        }
+
+        if (!Array.isArray(this.schedules) || this.schedules.length === 0) {
+          this.schedules = [
+            {
+              id: 'sched_regular',
+              name: 'Regular Schedule',
+              timeBlocks: Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : []
+            }
+          ];
+          this.currentScheduleId = 'sched_regular';
+        } else {
+          if (savedScheduleId && this.schedules.some(s => s.id === savedScheduleId)) {
+            this.currentScheduleId = savedScheduleId;
+          } else {
+            this.currentScheduleId = this.schedules[0].id;
+          }
+        }
+
+        const activeSched = this.getCurrentSchedule();
+        this.scheduleTimeBlocks = activeSched.timeBlocks || [];
 
         const savedCustomColors = localStorage.getItem('classPlanner_customColors_v1');
         if (savedCustomColors) {
@@ -775,6 +1015,10 @@ class SeatingChartApp {
           } else if (layout === 'lines') {
             const numLines = currentClass.linesCount || 4;
             currentClass.lines = this.autoBalanceGroups(allStudents, numLines, mode);
+          } else if (layout === 'freeform') {
+            currentClass.freeform = [...sortedStudents];
+            currentClass.freeformPositions = {};
+            this.initInitialFreeformPositions(currentClass);
           } else if (['half', 'third', 'fourth', 'fifth', 'sixth'].includes(layout)) {
             const numGroups = layout === 'half' ? 2 : layout === 'third' ? 3 : layout === 'fourth' ? 4 : layout === 'fifth' ? 5 : 6;
             currentClass.layoutsData[layout] = this.autoBalanceGroups(allStudents, numGroups, mode);
@@ -823,6 +1067,9 @@ class SeatingChartApp {
           suppressRemoveStudentWarning: this.suppressRemoveStudentWarning === true,
           currentClassId: this.currentClassId || (sanitizedClasses[0] ? sanitizedClasses[0].id : null),
           subjects: this.subjects || [],
+          schedules: this.schedules || [],
+          currentScheduleId: this.currentScheduleId || 'sched_regular',
+          calendarSync: this.isCalendarSyncEnabled === true,
           classes: sanitizedClasses
         };
 
@@ -879,6 +1126,10 @@ class SeatingChartApp {
               localStorage.setItem('seatingApp_suppressRemoveStudentWarning', this.suppressRemoveStudentWarning.toString());
             }
 
+            if (typeof importedData.calendarSync === 'boolean') {
+              this.isCalendarSyncEnabled = importedData.calendarSync;
+            }
+
             if (Array.isArray(importedData.subjects) && importedData.subjects.length > 0) {
               this.subjects = importedData.subjects;
             } else if (!Array.isArray(this.subjects) || this.subjects.length === 0) {
@@ -890,6 +1141,34 @@ class SeatingChartApp {
                 }
               ];
             }
+
+            if (Array.isArray(importedData.schedules) && importedData.schedules.length > 0) {
+              this.schedules = importedData.schedules.map(s => {
+                if (!s || typeof s !== 'object') return null;
+                return {
+                  id: s.id || ('sched_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4)),
+                  name: s.name || 'Regular Schedule',
+                  timeBlocks: Array.isArray(s.timeBlocks) ? s.timeBlocks : []
+                };
+              }).filter(Boolean);
+            } else {
+              this.schedules = [
+                {
+                  id: 'sched_regular',
+                  name: 'Regular Schedule',
+                  timeBlocks: Array.isArray(importedData.scheduleTimeBlocks) ? importedData.scheduleTimeBlocks : []
+                }
+              ];
+            }
+
+            if (importedData.currentScheduleId && this.schedules.some(s => s.id === importedData.currentScheduleId)) {
+              this.currentScheduleId = importedData.currentScheduleId;
+            } else {
+              this.currentScheduleId = this.schedules[0].id;
+            }
+
+            const activeSched = this.getCurrentSchedule();
+            this.scheduleTimeBlocks = activeSched.timeBlocks || [];
 
             const defaultSubjId = this.subjects[0] ? this.subjects[0].id : 'subj_music';
             let rawClasses = Array.isArray(importedData.classes) ? importedData.classes : (Array.isArray(importedData) ? importedData : []);
@@ -907,7 +1186,10 @@ class SeatingChartApp {
             this.saveData();
             this.closeModal('settingsModal');
             this.renderClassDropdown();
+            this.renderScheduleDropdown();
+            this.updateCalendarSyncUI();
             this.render();
+            if (this.currentViewMode === 'schedule') this.renderScheduleTable();
             if (this.currentViewMode === 'attendance') this.renderAttendanceTable();
             if (this.currentViewMode === 'grades') this.renderGradesTable();
 
@@ -958,6 +1240,7 @@ class SeatingChartApp {
 
         const layout = currentClass.layout;
         if (layout === 'circle') return currentClass.circle || [];
+        if (layout === 'freeform') return currentClass.freeform || [];
         if (layout === 'lines') {
           let all = [];
           if (currentClass.lines) currentClass.lines.forEach(l => { if (Array.isArray(l)) all.push(...l); });
@@ -1616,6 +1899,10 @@ class SeatingChartApp {
           if (fullscreenLayoutBtn) fullscreenLayoutBtn.style.display = '';
         }
 
+        const fsScheduleTab = document.getElementById('fullscreenScheduleTab');
+        if (fsScheduleTab) {
+          fsScheduleTab.style.display = (this.currentViewMode === 'schedule') ? 'inline-flex' : 'none';
+        }
         const fsSubjectTab = document.getElementById('fullscreenSubjectTab');
         if (fsSubjectTab) {
           fsSubjectTab.style.display = (this.currentViewMode === 'grades') ? 'inline-flex' : 'none';
@@ -1625,6 +1912,8 @@ class SeatingChartApp {
           fsClassTab.style.display = (this.currentViewMode === 'schedule') ? 'none' : 'inline-flex';
         }
 
+        this.renderScheduleDropdown();
+        this.updateCalendarSyncUI();
         this.updateAddGradeColumnButtonsUI();
         this.updateAddAttendanceButtonUI();
         this.updateSubheaders();
@@ -3371,10 +3660,11 @@ class SeatingChartApp {
         });
       }
 
-      findClassStartBlockIdx(c) {
+      findClassStartBlockIdx(c, scheduleId = null) {
         if (!c) return -1;
-        if (Array.isArray(c.scheduleSlots) && c.scheduleSlots[0]) {
-          return this.findSlotStartBlockIdx(c.scheduleSlots[0]);
+        const slots = this.getClassScheduleSlots(c, scheduleId || this.currentScheduleId);
+        if (Array.isArray(slots) && slots[0]) {
+          return this.findSlotStartBlockIdx(slots[0]);
         }
         const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
         if (blocks.length === 0) return -1;
@@ -3389,9 +3679,55 @@ class SeatingChartApp {
         });
       }
 
-      renderScheduleTable() {
-        const table = document.getElementById('scheduleTable');
-        if (!table) return;
+      toggleCalendarSync() {
+        this.isCalendarSyncEnabled = !this.isCalendarSyncEnabled;
+        this.calendarSyncWeekOffset = 0; // Reset back to current week whenever toggled
+        this.saveData();
+        this.updateCalendarSyncUI();
+        this.renderScheduleTable();
+      }
+
+      changeCalendarSyncWeek(delta) {
+        this.calendarSyncWeekOffset = (this.calendarSyncWeekOffset || 0) + delta;
+        this.renderScheduleTable();
+      }
+
+      updateCalendarSyncUI() {
+        const btn = document.getElementById('btnToggleCalendarSync');
+        const badge = document.getElementById('calendarSyncBadge');
+        if (!btn) return;
+        if (this.isCalendarSyncEnabled) {
+          btn.classList.add('active');
+          if (badge) {
+            badge.textContent = 'ON';
+            badge.style.background = '#2563eb';
+            badge.style.color = '#ffffff';
+          }
+        } else {
+          btn.classList.remove('active');
+          if (badge) {
+            badge.textContent = 'OFF';
+            badge.style.background = '#e2e8f0';
+            badge.style.color = '#64748b';
+          }
+        }
+      }
+
+      getScheduleCalendarDates() {
+        const now = new Date();
+        const dayOfWeek = now.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+        
+        let mondayOffset = 0;
+        if (dayOfWeek === 0) { // Sunday -> next week's Monday (+1 day)
+          mondayOffset = 1;
+        } else if (dayOfWeek === 6) { // Saturday -> next week's Monday (+2 days)
+          mondayOffset = 2;
+        } else { // Monday to Friday -> current week's Monday
+          mondayOffset = -(dayOfWeek - 1);
+        }
+
+        const weekOffsetDays = (this.calendarSyncWeekOffset || 0) * 7;
+        const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset + weekOffsetDays);
 
         const DAYS = [
           { key: 'Monday', label: 'Monday', short: 'Mon' },
@@ -3401,13 +3737,81 @@ class SeatingChartApp {
           { key: 'Friday', label: 'Friday', short: 'Fri' }
         ];
 
-        const timeBlocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
+        return DAYS.map((d, idx) => {
+          const dayDate = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + idx);
+          const dateStr = `${dayDate.getMonth() + 1}/${dayDate.getDate()}`;
+          const isToday = (
+            dayDate.getFullYear() === now.getFullYear() &&
+            dayDate.getMonth() === now.getMonth() &&
+            dayDate.getDate() === now.getDate()
+          );
+          return {
+            ...d,
+            dateStr: dateStr,
+            isToday: isToday
+          };
+        });
+      }
+
+      renderScheduleTable() {
+        const table = document.getElementById('scheduleTable');
+        if (!table) return;
+
+        const DAYS = this.getScheduleCalendarDates();
+        const activeSched = this.getCurrentSchedule();
+        const timeBlocks = Array.isArray(activeSched.timeBlocks) ? activeSched.timeBlocks : (this.scheduleTimeBlocks || []);
+        this.scheduleTimeBlocks = timeBlocks;
 
         let html = `
           <thead>
             <tr>
               <th style="width: 175px; min-width: 160px; text-align: center;">Time</th>
-              ${DAYS.map(d => `<th style="width: 18%; min-width: 130px; text-align: center;">${d.label}</th>`).join('')}
+              ${DAYS.map(d => {
+                if (this.isCalendarSyncEnabled) {
+                  const todayThClass = d.isToday ? ' schedule-today-th' : '';
+                  const badgeStyle = d.isToday ? 'background: #2563eb; color: #ffffff;' : 'background: #e2e8f0; color: #475569;';
+                  
+                  let headerInnerHtml = '';
+                  if (d.key === 'Monday') {
+                    headerInnerHtml = `
+                      <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 4px;">
+                        <button type="button" class="btn-schedule-week-nav" onclick="event.stopPropagation(); app.changeCalendarSyncWeek(-1)" title="Previous Week">‹</button>
+                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; flex: 1;">
+                          <span style="font-size: 0.8rem; font-weight: 800; padding: 1px 8px; border-radius: 10px; ${badgeStyle}">${d.dateStr}</span>
+                          <span style="font-size: 0.95rem; font-weight: ${d.isToday ? '800' : '700'}; color: ${d.isToday ? '#1e40af' : '#1e293b'};">${d.label}</span>
+                        </div>
+                        <div style="width: 26px; flex-shrink: 0;"></div>
+                      </div>
+                    `;
+                  } else if (d.key === 'Friday') {
+                    headerInnerHtml = `
+                      <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 4px;">
+                        <div style="width: 26px; flex-shrink: 0;"></div>
+                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; flex: 1;">
+                          <span style="font-size: 0.8rem; font-weight: 800; padding: 1px 8px; border-radius: 10px; ${badgeStyle}">${d.dateStr}</span>
+                          <span style="font-size: 0.95rem; font-weight: ${d.isToday ? '800' : '700'}; color: ${d.isToday ? '#1e40af' : '#1e293b'};">${d.label}</span>
+                        </div>
+                        <button type="button" class="btn-schedule-week-nav" onclick="event.stopPropagation(); app.changeCalendarSyncWeek(1)" title="Next Week">›</button>
+                      </div>
+                    `;
+                  } else {
+                    headerInnerHtml = `
+                      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 100%;">
+                        <span style="font-size: 0.8rem; font-weight: 800; padding: 1px 8px; border-radius: 10px; ${badgeStyle}">${d.dateStr}</span>
+                        <span style="font-size: 0.95rem; font-weight: ${d.isToday ? '800' : '700'}; color: ${d.isToday ? '#1e40af' : '#1e293b'};">${d.label}</span>
+                      </div>
+                    `;
+                  }
+
+                  return `
+                    <th class="${todayThClass}" style="width: 18%; min-width: 130px; text-align: center; vertical-align: middle; padding: 8px 6px;">
+                      ${headerInnerHtml}
+                    </th>
+                  `;
+                } else {
+                  return `<th style="width: 18%; min-width: 130px; text-align: center;">${d.label}</th>`;
+                }
+              }).join('')}
             </tr>
           </thead>
           <tbody>
@@ -3420,7 +3824,7 @@ class SeatingChartApp {
                 <div style="font-size: 2.6rem; margin-bottom: 12px;">🗓️</div>
                 <div style="font-weight: 800; font-size: 1.25rem; color: #1e293b; margin-bottom: 8px;">Welcome to Your Weekly Schedule</div>
                 <div style="font-size: 0.95rem; color: #64748b; margin-bottom: 22px; max-width: 480px; margin-left: auto; margin-right: auto; line-height: 1.5;">
-                  Start by creating your blocks of time. Click below to begin with <strong>8:30-9:00</strong> and customize your daily time slots.
+                  Start by creating your blocks of time. Click below to begin with <strong>8:30-9:00</strong> and customize your daily time slots for <strong>${this.escapeHtml(activeSched.name)}</strong>.
                 </div>
                 <button type="button" class="btn btn-primary" style="font-weight: 800; font-size: 1rem; padding: 12px 28px; border-radius: 8px; box-shadow: 0 2px 6px rgba(37,99,235,0.3);" onclick="app.initScheduleTimeBlocks()">
                   + Set Up Time Blocks
@@ -3476,11 +3880,13 @@ class SeatingChartApp {
                 return;
               }
 
+              const isTodayColumn = (this.isCalendarSyncEnabled && day.isToday);
+              const cellHighlightClass = isTodayColumn ? ' schedule-today-cell' : '';
+              const todayCellStyle = isTodayColumn ? 'border-left: 1.5px solid #bfdbfe; border-right: 1.5px solid #bfdbfe;' : '';
+
               const matchingSlotEntries = [];
               (this.classes || []).forEach(c => {
-                const slots = (Array.isArray(c.scheduleSlots) && c.scheduleSlots.length > 0)
-                  ? c.scheduleSlots 
-                  : [{ startBlockIdx: c.scheduleStartBlockIdx, blockCount: c.scheduleBlockCount, time: c.scheduleTime, days: c.scheduleDays }];
+                const slots = this.getClassScheduleSlots(c, activeSched.id);
 
                 slots.forEach(slot => {
                   const days = Array.isArray(slot.days) ? slot.days : [];
@@ -3505,12 +3911,12 @@ class SeatingChartApp {
 
                 const rowspanAttr = clampedSpan > 1 ? ` rowspan="${clampedSpan}"` : '';
 
-                html += `<td${rowspanAttr} style="text-align: center; vertical-align: middle; padding: 8px;">`;
+                html += `<td${rowspanAttr} class="${cellHighlightClass}" style="text-align: center; vertical-align: middle; padding: 8px; ${todayCellStyle}">`;
                 matchingSlotEntries.forEach(entry => {
                   const c = entry.c;
                   const isText = Boolean(c.isTextOnly || c.entryType === 'text');
                   const theme = this.getClassColorTheme(c.color);
-                  const classNotes = (Array.isArray(c.scheduleNotes) ? c.scheduleNotes : []).filter(note => {
+                  const classNotes = this.getClassScheduleNotes(c, activeSched.id).filter(note => {
                     if (!note || !note.text) return false;
                     if (note.target === 'all') return true;
                     const noteDays = Array.isArray(note.days) ? note.days : [];
@@ -3530,7 +3936,7 @@ class SeatingChartApp {
                 });
                 html += `</td>`;
               } else {
-                html += `<td style="text-align: center; vertical-align: middle; padding: 8px;"><span style="color: #cbd5e1; font-size: 0.9rem; user-select: none;">—</span></td>`;
+                html += `<td class="${cellHighlightClass}" style="text-align: center; vertical-align: middle; padding: 8px; ${todayCellStyle}"><span style="color: #cbd5e1; font-size: 0.9rem; user-select: none;">—</span></td>`;
               }
             });
 
@@ -3646,6 +4052,8 @@ class SeatingChartApp {
       }
 
       openManageScheduleModal() {
+        this.tempSchedules = JSON.parse(JSON.stringify(this.schedules || []));
+        this.tempSelectedScheduleId = this.currentScheduleId || (this.tempSchedules[0] ? this.tempSchedules[0].id : 'sched_regular');
         this.tempScheduleClasses = JSON.parse(JSON.stringify(this.classes || []));
         this.openScheduleNotesClassIndices = new Set();
         this.manuallyExpandedScheduleClassIndices = new Set();
@@ -3655,11 +4063,26 @@ class SeatingChartApp {
 
         this.setScheduleEntryType('class');
 
+        const curSched = this.tempSchedules.find(s => s.id === this.tempSelectedScheduleId) || this.tempSchedules[0];
+        this.scheduleTimeBlocks = curSched ? (curSched.timeBlocks || []) : [];
+
+        // Ensure every class has an entry in c.schedules for the selected schedule
+        (this.tempScheduleClasses || []).forEach(c => {
+          if (!c.schedules) c.schedules = {};
+          if (!c.schedules[this.tempSelectedScheduleId]) {
+            c.schedules[this.tempSelectedScheduleId] = {
+              scheduleSlots: JSON.parse(JSON.stringify(this.getClassScheduleSlots(c, this.tempSelectedScheduleId))),
+              scheduleNotes: JSON.parse(JSON.stringify(this.getClassScheduleNotes(c, this.tempSelectedScheduleId)))
+            };
+          }
+        });
+
         const nameInput = document.getElementById('modalAddScheduleClassName');
         const colorBtn = document.getElementById('modalAddScheduleColorBtn');
         if (nameInput) nameInput.value = '';
         if (colorBtn) colorBtn.style.backgroundColor = '#059669';
 
+        this.populateManageScheduleTopBar();
         this.populateNewClassTimeSelect();
 
         const daysContainer = document.getElementById('modalAddScheduleDaysContainer');
@@ -3672,19 +4095,159 @@ class SeatingChartApp {
         if (modal) modal.classList.add('active');
       }
 
-      isClassScheduleConfigured(c) {
+      populateManageScheduleTopBar() {
+        const modalSelect = document.getElementById('modalScheduleSelect');
+        const btnDelete = document.getElementById('btnDeleteScheduleFromModal');
+        if (modalSelect) {
+          const optionsHtml = (this.tempSchedules || []).map(s => {
+            const isSelected = (s.id === this.tempSelectedScheduleId);
+            return `<option value="${s.id}" ${isSelected ? 'selected' : ''}>${this.escapeHtml(s.name)}</option>`;
+          }).join('');
+          modalSelect.innerHTML = optionsHtml;
+          modalSelect.value = this.tempSelectedScheduleId;
+        }
+        if (btnDelete) {
+          const canDelete = (this.tempSchedules && this.tempSchedules.length > 1);
+          btnDelete.style.opacity = canDelete ? '1' : '0.4';
+          btnDelete.style.cursor = canDelete ? 'pointer' : 'not-allowed';
+          btnDelete.title = canDelete ? 'Delete current schedule' : 'Cannot delete the only schedule';
+        }
+      }
+
+      switchManageScheduleModalSchedule(scheduleId) {
+        if (!scheduleId || !this.tempSchedules.some(s => s.id === scheduleId)) return;
+        this.tempSelectedScheduleId = scheduleId;
+        const targetSched = this.tempSchedules.find(s => s.id === scheduleId);
+        this.scheduleTimeBlocks = targetSched ? (targetSched.timeBlocks || []) : [];
+
+        (this.tempScheduleClasses || []).forEach(c => {
+          if (!c.schedules) c.schedules = {};
+          if (!c.schedules[scheduleId]) {
+            c.schedules[scheduleId] = {
+              scheduleSlots: [{ id: 'slot_1', startBlockIdx: -1, blockCount: 1, time: '', days: [] }],
+              scheduleNotes: []
+            };
+          }
+        });
+
+        this.populateManageScheduleTopBar();
+        this.populateNewClassTimeSelect();
+        this.renderManageScheduleList();
+      }
+
+      openAddScheduleDialog() {
+        const input = document.getElementById('newScheduleNameInput');
+        const chk = document.getElementById('chkCopyCurrentScheduleTimeBlocks');
+        if (input) input.value = '';
+        if (chk) chk.checked = true;
+        const modal = document.getElementById('addSchedulePromptModal');
+        if (modal) modal.classList.add('active');
+        setTimeout(() => { if (input) input.focus(); }, 60);
+      }
+
+      confirmAddScheduleDialog() {
+        const input = document.getElementById('newScheduleNameInput');
+        const name = input ? input.value.trim() : '';
+        if (!name) {
+          alert('Please enter a schedule name.');
+          return;
+        }
+
+        const shouldCopy = document.getElementById('chkCopyCurrentScheduleTimeBlocks') 
+          ? document.getElementById('chkCopyCurrentScheduleTimeBlocks').checked 
+          : true;
+
+        const newId = 'sched_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+        const currentSched = this.tempSchedules.find(s => s.id === this.tempSelectedScheduleId);
+        const copiedTimeBlocks = (shouldCopy && currentSched && Array.isArray(currentSched.timeBlocks))
+          ? JSON.parse(JSON.stringify(currentSched.timeBlocks))
+          : [];
+
+        this.tempSchedules.push({
+          id: newId,
+          name: name,
+          timeBlocks: copiedTimeBlocks
+        });
+
+        (this.tempScheduleClasses || []).forEach(c => {
+          if (!c.schedules) c.schedules = {};
+          if (shouldCopy) {
+            c.schedules[newId] = {
+              scheduleSlots: JSON.parse(JSON.stringify(this.getClassScheduleSlots(c, this.tempSelectedScheduleId))),
+              scheduleNotes: JSON.parse(JSON.stringify(this.getClassScheduleNotes(c, this.tempSelectedScheduleId)))
+            };
+          } else {
+            c.schedules[newId] = {
+              scheduleSlots: [{ id: 'slot_1', startBlockIdx: -1, blockCount: 1, time: '', days: [] }],
+              scheduleNotes: []
+            };
+          }
+        });
+
+        this.closeModal('addSchedulePromptModal');
+        this.switchManageScheduleModalSchedule(newId);
+      }
+
+      openRenameScheduleDialog() {
+        const currentSched = (this.tempSchedules || []).find(s => s.id === this.tempSelectedScheduleId);
+        if (!currentSched) return;
+        const input = document.getElementById('renameScheduleNameInput');
+        if (input) input.value = currentSched.name;
+        const modal = document.getElementById('renameSchedulePromptModal');
+        if (modal) modal.classList.add('active');
+        setTimeout(() => { if (input) { input.focus(); input.select(); } }, 60);
+      }
+
+      confirmRenameScheduleDialog() {
+        const input = document.getElementById('renameScheduleNameInput');
+        const name = input ? input.value.trim() : '';
+        if (!name) {
+          alert('Please enter a schedule name.');
+          return;
+        }
+
+        const currentSched = (this.tempSchedules || []).find(s => s.id === this.tempSelectedScheduleId);
+        if (currentSched) {
+          currentSched.name = name;
+        }
+
+        this.closeModal('renameSchedulePromptModal');
+        this.populateManageScheduleTopBar();
+        this.renderManageScheduleList();
+      }
+
+      deleteScheduleFromModal() {
+        if (!Array.isArray(this.tempSchedules) || this.tempSchedules.length <= 1) {
+          alert('You must have at least one schedule.');
+          return;
+        }
+
+        const currentSched = this.tempSchedules.find(s => s.id === this.tempSelectedScheduleId);
+        if (!currentSched) return;
+
+        if (!confirm(`Are you sure you want to delete the schedule "${currentSched.name}"?`)) return;
+
+        const deletedId = this.tempSelectedScheduleId;
+        this.tempSchedules = this.tempSchedules.filter(s => s.id !== deletedId);
+        (this.tempScheduleClasses || []).forEach(c => {
+          if (c.schedules && c.schedules[deletedId]) {
+            delete c.schedules[deletedId];
+          }
+        });
+
+        this.tempSelectedScheduleId = this.tempSchedules[0].id;
+        this.switchManageScheduleModalSchedule(this.tempSelectedScheduleId);
+      }
+
+      isClassScheduleConfigured(c, scheduleId = null) {
         if (!c) return false;
-        const slots = (Array.isArray(c.scheduleSlots) && c.scheduleSlots.length > 0)
-          ? c.scheduleSlots
-          : [{ startBlockIdx: c.scheduleStartBlockIdx, blockCount: c.scheduleBlockCount, time: c.scheduleTime, days: c.scheduleDays }];
+        const slots = this.getClassScheduleSlots(c, scheduleId || this.tempSelectedScheduleId || this.currentScheduleId);
         return slots.some(s => (s.startBlockIdx >= 0 || (s.time && s.time.trim())) && Array.isArray(s.days) && s.days.length > 0);
       }
 
-      getScheduleSummaryText(c) {
+      getScheduleSummaryText(c, scheduleId = null) {
         if (!c) return '';
-        const slots = (Array.isArray(c.scheduleSlots) && c.scheduleSlots.length > 0)
-          ? c.scheduleSlots
-          : [{ startBlockIdx: c.scheduleStartBlockIdx, blockCount: c.scheduleBlockCount, time: c.scheduleTime, days: c.scheduleDays }];
+        const slots = this.getClassScheduleSlots(c, scheduleId || this.tempSelectedScheduleId || this.currentScheduleId);
         const validSlots = slots.filter(s => (s.startBlockIdx >= 0 || (s.time && s.time.trim())) && Array.isArray(s.days) && s.days.length > 0);
         if (validSlots.length === 0) return '';
         return validSlots.map(s => {
@@ -3737,6 +4300,14 @@ class SeatingChartApp {
         const isText = (this.tempScheduleEntryType === 'text');
         const newColor = this.tempNewClassColor || (isText ? '#64748b' : '#059669');
         const defaultSubjId = this.subjects[0] ? this.subjects[0].id : 'subj_music';
+        const slotObj = {
+          id: 'slot_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+          startBlockIdx: startIdx,
+          blockCount: blockCount,
+          time: time,
+          days: selectedDays
+        };
+
         const rawClass = {
           id: (isText ? 'text-' : 'class-') + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
           name: name,
@@ -3747,16 +4318,14 @@ class SeatingChartApp {
           scheduleStartBlockIdx: startIdx,
           scheduleBlockCount: blockCount,
           scheduleDays: selectedDays,
-          scheduleSlots: [
-            {
-              id: 'slot_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-              startBlockIdx: startIdx,
-              blockCount: blockCount,
-              time: time,
-              days: selectedDays
-            }
-          ],
+          scheduleSlots: [slotObj],
           scheduleNotes: [],
+          schedules: {
+            [this.tempSelectedScheduleId]: {
+              scheduleSlots: [slotObj],
+              scheduleNotes: []
+            }
+          },
           subjectId: defaultSubjId,
           layout: 'rows',
           rowsCount: 4,
@@ -3806,31 +4375,34 @@ class SeatingChartApp {
       addClassScheduleSlot(classIdx) {
         if (!this.tempScheduleClasses[classIdx]) return;
         const c = this.tempScheduleClasses[classIdx];
-        if (!Array.isArray(c.scheduleSlots)) {
-          c.scheduleSlots = [];
-        }
-        c.scheduleSlots.push({
+        const slots = this.getClassScheduleSlots(c, this.tempSelectedScheduleId);
+        slots.push({
           id: 'slot_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
           startBlockIdx: -1,
           blockCount: 1,
           time: '',
           days: []
         });
+        this.setClassScheduleSlots(slots, c, this.tempSelectedScheduleId);
         this.renderManageScheduleList();
       }
 
       removeClassScheduleSlot(classIdx, slotIdx) {
-        if (!this.tempScheduleClasses[classIdx] || !Array.isArray(this.tempScheduleClasses[classIdx].scheduleSlots)) return;
+        if (!this.tempScheduleClasses[classIdx]) return;
         const c = this.tempScheduleClasses[classIdx];
-        if (c.scheduleSlots.length > 1) {
-          c.scheduleSlots.splice(slotIdx, 1);
+        const slots = this.getClassScheduleSlots(c, this.tempSelectedScheduleId);
+        if (slots.length > 1) {
+          slots.splice(slotIdx, 1);
+          this.setClassScheduleSlots(slots, c, this.tempSelectedScheduleId);
           this.renderManageScheduleList();
         }
       }
 
       onClassSlotTimeSelectChange(classIdx, slotIdx, val) {
-        if (!this.tempScheduleClasses[classIdx] || !this.tempScheduleClasses[classIdx].scheduleSlots) return;
-        const slot = this.tempScheduleClasses[classIdx].scheduleSlots[slotIdx];
+        if (!this.tempScheduleClasses[classIdx]) return;
+        const c = this.tempScheduleClasses[classIdx];
+        const slots = this.getClassScheduleSlots(c, this.tempSelectedScheduleId);
+        const slot = slots[slotIdx];
         if (!slot) return;
 
         const bIdx = parseInt(val, 10);
@@ -3844,12 +4416,15 @@ class SeatingChartApp {
           slot.blockCount = 1;
           slot.time = '';
         }
+        this.setClassScheduleSlots(slots, c, this.tempSelectedScheduleId);
         this.renderManageScheduleList();
       }
 
       increaseClassSlotBlockSpan(classIdx, slotIdx) {
-        if (!this.tempScheduleClasses[classIdx] || !this.tempScheduleClasses[classIdx].scheduleSlots) return;
-        const slot = this.tempScheduleClasses[classIdx].scheduleSlots[slotIdx];
+        if (!this.tempScheduleClasses[classIdx]) return;
+        const c = this.tempScheduleClasses[classIdx];
+        const slots = this.getClassScheduleSlots(c, this.tempSelectedScheduleId);
+        const slot = slots[slotIdx];
         if (!slot) return;
         const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
         if (blocks.length === 0) return;
@@ -3863,13 +4438,16 @@ class SeatingChartApp {
           slot.startBlockIdx = startIdx;
           slot.blockCount = count;
           slot.time = this.getCombinedTimeRange(startIdx, count);
+          this.setClassScheduleSlots(slots, c, this.tempSelectedScheduleId);
           this.renderManageScheduleList();
         }
       }
 
       decreaseClassSlotBlockSpan(classIdx, slotIdx) {
-        if (!this.tempScheduleClasses[classIdx] || !this.tempScheduleClasses[classIdx].scheduleSlots) return;
-        const slot = this.tempScheduleClasses[classIdx].scheduleSlots[slotIdx];
+        if (!this.tempScheduleClasses[classIdx]) return;
+        const c = this.tempScheduleClasses[classIdx];
+        const slots = this.getClassScheduleSlots(c, this.tempSelectedScheduleId);
+        const slot = slots[slotIdx];
         if (!slot) return;
         const blocks = Array.isArray(this.scheduleTimeBlocks) ? this.scheduleTimeBlocks : [];
         if (blocks.length === 0) return;
@@ -3883,13 +4461,16 @@ class SeatingChartApp {
           slot.startBlockIdx = startIdx;
           slot.blockCount = count;
           slot.time = this.getCombinedTimeRange(startIdx, count);
+          this.setClassScheduleSlots(slots, c, this.tempSelectedScheduleId);
           this.renderManageScheduleList();
         }
       }
 
       toggleScheduleModalClassSlotDay(classIdx, slotIdx, dayKey) {
-        if (!this.tempScheduleClasses[classIdx] || !this.tempScheduleClasses[classIdx].scheduleSlots) return;
-        const slot = this.tempScheduleClasses[classIdx].scheduleSlots[slotIdx];
+        if (!this.tempScheduleClasses[classIdx]) return;
+        const c = this.tempScheduleClasses[classIdx];
+        const slots = this.getClassScheduleSlots(c, this.tempSelectedScheduleId);
+        const slot = slots[slotIdx];
         if (!slot) return;
         if (!Array.isArray(slot.days)) slot.days = [];
 
@@ -3899,6 +4480,7 @@ class SeatingChartApp {
         } else {
           slot.days.push(dayKey);
         }
+        this.setClassScheduleSlots(slots, c, this.tempSelectedScheduleId);
         this.renderManageScheduleList();
       }
 
@@ -3936,21 +4518,18 @@ class SeatingChartApp {
           item.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
 
           const isText = Boolean(c.isTextOnly || c.entryType === 'text');
-          const notes = Array.isArray(c.scheduleNotes) ? c.scheduleNotes : [];
+          const notes = this.getClassScheduleNotes(c, this.tempSelectedScheduleId);
           const hasNotes = notes.length > 0;
           const isExpandedNotes = this.openScheduleNotesClassIndices.has(idx);
 
-          const isConfigured = this.isClassScheduleConfigured(c);
+          const isConfigured = this.isClassScheduleConfigured(c, this.tempSelectedScheduleId);
           const isCardExpanded = !isConfigured || this.manuallyExpandedScheduleClassIndices.has(idx);
 
-          const slots = (Array.isArray(c.scheduleSlots) && c.scheduleSlots.length > 0)
-            ? c.scheduleSlots
-            : [{ id: 'slot_1', startBlockIdx: c.scheduleStartBlockIdx || -1, blockCount: c.scheduleBlockCount || 1, time: c.scheduleTime || '', days: c.scheduleDays || [] }];
-          c.scheduleSlots = slots;
+          const slots = this.getClassScheduleSlots(c, this.tempSelectedScheduleId);
 
           if (!isCardExpanded) {
             // Collapsed view for configured class
-            const summaryText = this.getScheduleSummaryText(c);
+            const summaryText = this.getScheduleSummaryText(c, this.tempSelectedScheduleId);
             item.innerHTML = `
               <div style="display: flex; align-items: center; gap: 8px;">
                 <div style="display: flex; flex-direction: column; gap: 2px;">
@@ -4149,16 +4728,15 @@ class SeatingChartApp {
           }
         }
 
-        if (!Array.isArray(this.tempScheduleClasses[classIdx].scheduleNotes)) {
-          this.tempScheduleClasses[classIdx].scheduleNotes = [];
-        }
-
-        this.tempScheduleClasses[classIdx].scheduleNotes.push({
+        const c = this.tempScheduleClasses[classIdx];
+        const notes = this.getClassScheduleNotes(c, this.tempSelectedScheduleId);
+        notes.push({
           id: 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
           text: text,
           target: targetVal,
           days: selectedDays
         });
+        this.setClassScheduleNotes(notes, c, this.tempSelectedScheduleId);
 
         if (!this.openScheduleNotesClassIndices) this.openScheduleNotesClassIndices = new Set();
         this.openScheduleNotesClassIndices.add(classIdx);
@@ -4167,22 +4745,24 @@ class SeatingChartApp {
       }
 
       deleteScheduleNote(classIdx, noteIdx) {
-        if (!this.tempScheduleClasses[classIdx] || !Array.isArray(this.tempScheduleClasses[classIdx].scheduleNotes)) return;
-        this.tempScheduleClasses[classIdx].scheduleNotes.splice(noteIdx, 1);
+        if (!this.tempScheduleClasses[classIdx]) return;
+        const c = this.tempScheduleClasses[classIdx];
+        const notes = this.getClassScheduleNotes(c, this.tempSelectedScheduleId);
+        notes.splice(noteIdx, 1);
+        this.setClassScheduleNotes(notes, c, this.tempSelectedScheduleId);
         this.renderManageScheduleList();
       }
 
       toggleScheduleModalClassDay(classIdx, dayKey) {
         if (!this.tempScheduleClasses[classIdx]) return;
-        if (!Array.isArray(this.tempScheduleClasses[classIdx].scheduleDays)) {
-          this.tempScheduleClasses[classIdx].scheduleDays = [];
-        }
-        const days = this.tempScheduleClasses[classIdx].scheduleDays;
-        const existsIdx = days.findIndex(d => d.toLowerCase() === dayKey.toLowerCase());
-        if (existsIdx > -1) {
-          days.splice(existsIdx, 1);
-        } else {
-          days.push(dayKey);
+        const c = this.tempScheduleClasses[classIdx];
+        const slots = this.getClassScheduleSlots(c, this.tempSelectedScheduleId);
+        if (slots[0]) {
+          if (!Array.isArray(slots[0].days)) slots[0].days = [];
+          const existsIdx = slots[0].days.findIndex(d => d.toLowerCase() === dayKey.toLowerCase());
+          if (existsIdx > -1) slots[0].days.splice(existsIdx, 1);
+          else slots[0].days.push(dayKey);
+          this.setClassScheduleSlots(slots, c, this.tempSelectedScheduleId);
         }
         this.renderManageScheduleList();
       }
@@ -4333,14 +4913,21 @@ class SeatingChartApp {
         }
 
         const defaultSubjId = this.subjects[0] ? this.subjects[0].id : 'subj_music';
+        this.schedules = this.tempSchedules;
+        this.currentScheduleId = this.tempSelectedScheduleId;
+
         this.classes = this.tempScheduleClasses.map(c => this.sanitizeAndMigrateClass(c, defaultSubjId)).filter(Boolean);
 
         if (!this.classes.some(c => c.id === this.currentClassId)) {
-          this.currentClassId = this.classes[0].id;
+          this.currentClassId = this.classes[0] ? this.classes[0].id : null;
         }
+
+        const activeSched = this.getCurrentSchedule();
+        this.scheduleTimeBlocks = activeSched.timeBlocks || [];
 
         this.saveData();
         this.renderClassDropdown();
+        this.renderScheduleDropdown();
         this.closeModal('manageScheduleModal');
 
         if (this.currentViewMode === 'schedule') {
@@ -4590,6 +5177,37 @@ class SeatingChartApp {
         this.populateSettingsSubjectDropdown();
       }
 
+      initInitialFreeformPositions(currentClass, boxWidth = 880) {
+        if (!currentClass) return;
+        if (!Array.isArray(currentClass.freeform) || currentClass.freeform.length === 0) {
+          const all = this.getAllClassStudents(currentClass);
+          currentClass.freeform = this.sortStudentsByName(all, 'last');
+        }
+        if (!currentClass.freeformPositions || typeof currentClass.freeformPositions !== 'object') {
+          currentClass.freeformPositions = {};
+        }
+
+        const cardWidth = 115;
+        const cardHeight = 78;
+        const gapX = 14;
+        const gapY = 12;
+        const startX = 18;
+        const startY = 18;
+
+        const maxCols = Math.max(1, Math.floor((boxWidth - startX * 2) / (cardWidth + gapX)));
+
+        currentClass.freeform.forEach((studentName, idx) => {
+          if (!currentClass.freeformPositions[studentName]) {
+            const col = idx % maxCols;
+            const row = Math.floor(idx / maxCols);
+            currentClass.freeformPositions[studentName] = {
+              x: startX + col * (cardWidth + gapX),
+              y: startY + row * (cardHeight + gapY)
+            };
+          }
+        });
+      }
+
       setLayout(layoutType) {
         const currentClass = this.getCurrentClass();
         if (!currentClass) return;
@@ -4606,6 +5224,11 @@ class SeatingChartApp {
           if (!currentClass.lines || !Array.isArray(currentClass.lines) || currentClass.lines.length !== lineCount || currentClass.lines.flat().length === 0) {
             currentClass.lines = this.autoBalanceGroups(all, lineCount, 'last');
           }
+        } else if (layoutType === 'freeform') {
+          if (!currentClass.freeform || currentClass.freeform.length === 0) {
+            currentClass.freeform = [...sortedByLast];
+          }
+          this.initInitialFreeformPositions(currentClass);
         } else if (['half', 'third', 'fourth', 'fifth', 'sixth'].includes(layoutType)) {
           const numGroups = layoutType === 'half' ? 2 : layoutType === 'third' ? 3 : layoutType === 'fourth' ? 4 : layoutType === 'fifth' ? 5 : 6;
           const gArr = currentClass.layoutsData[layoutType];
@@ -4637,6 +5260,10 @@ class SeatingChartApp {
 
           if (!currentClass.circle) currentClass.circle = [];
           currentClass.circle.push(name);
+
+          if (!currentClass.freeform) currentClass.freeform = [];
+          if (!currentClass.freeform.includes(name)) currentClass.freeform.push(name);
+          this.initInitialFreeformPositions(currentClass);
 
           if (!Array.isArray(currentClass.lines) || currentClass.lines.length < 4) {
             currentClass.lines = Array.from({ length: 4 }, () => []);
@@ -4720,6 +5347,10 @@ class SeatingChartApp {
             if (!currentClass.circle) currentClass.circle = [];
             currentClass.circle.push(...addedKeys);
 
+            if (!currentClass.freeform) currentClass.freeform = [];
+            currentClass.freeform.push(...addedKeys);
+            this.initInitialFreeformPositions(currentClass);
+
             if (!Array.isArray(currentClass.lines) || currentClass.lines.length < 4) {
               currentClass.lines = Array.from({ length: 4 }, () => []);
             }
@@ -4748,6 +5379,12 @@ class SeatingChartApp {
         currentClass.rows = currentClass.rows.map(row => Array.isArray(row) ? row.filter(name => name !== nameToRemove) : []);
         if (currentClass.circle && Array.isArray(currentClass.circle)) {
           currentClass.circle = currentClass.circle.filter(name => name !== nameToRemove);
+        }
+        if (currentClass.freeform && Array.isArray(currentClass.freeform)) {
+          currentClass.freeform = currentClass.freeform.filter(name => name !== nameToRemove);
+        }
+        if (currentClass.freeformPositions && currentClass.freeformPositions[nameToRemove]) {
+          delete currentClass.freeformPositions[nameToRemove];
         }
         if (currentClass.layoutsData) {
           ['half', 'third', 'fourth', 'fifth', 'sixth'].forEach(key => {
@@ -4792,6 +5429,10 @@ class SeatingChartApp {
         if (layout === 'circle') {
           if (!currentClass.circle) currentClass.circle = [];
           if (!currentClass.circle.includes(nameToPlace)) currentClass.circle.push(nameToPlace);
+        } else if (layout === 'freeform') {
+          if (!currentClass.freeform) currentClass.freeform = [];
+          if (!currentClass.freeform.includes(nameToPlace)) currentClass.freeform.push(nameToPlace);
+          this.initInitialFreeformPositions(currentClass);
         } else if (layout === 'lines') {
           const lineCount = currentClass.linesCount || 4;
           if (!Array.isArray(currentClass.lines) || currentClass.lines.length < lineCount) {
@@ -6069,19 +6710,32 @@ class SeatingChartApp {
                 newWidth = startWidth - deltaX;
               }
 
-              // Calculate remaining width from sibling boxes in the same row slot
-              let maxAllowedWidth = containerWidth;
-              if (parentContainer) {
-                const siblings = Array.from(parentContainer.querySelectorAll('.group-box')).filter(b => b !== el);
-                const totalSiblingsWidth = siblings.reduce((sum, b) => sum + b.offsetWidth, 0);
-                const totalGaps = siblings.length * gap + 40;
-                maxAllowedWidth = Math.max(150, containerWidth - totalSiblingsWidth - totalGaps);
-              }
+              const isFreeform = el.classList.contains('freeform-canvas-box') || sizeKey === 'freeform';
 
-              if (newWidth >= 120 && newWidth <= maxAllowedWidth) {
-                el.style.width = `${newWidth}px`;
-              } else if (newWidth > maxAllowedWidth) {
-                el.style.width = `${maxAllowedWidth}px`;
+              if (isFreeform) {
+                // Freeform can expand freely beyond viewport width to enable horizontal scrolling
+                if (newWidth >= 200 && newWidth <= 4000) {
+                  el.style.width = `${newWidth}px`;
+                }
+              } else {
+                // Calculate remaining width from sibling boxes in the same row slot
+                let maxAllowedWidth = containerWidth;
+                if (parentContainer) {
+                  const siblings = Array.from(parentContainer.querySelectorAll('.group-box')).filter(b => b !== el);
+                  if (siblings.length > 0) {
+                    const totalSiblingsWidth = siblings.reduce((sum, b) => sum + b.offsetWidth, 0);
+                    const totalGaps = siblings.length * gap + 40;
+                    maxAllowedWidth = Math.max(150, containerWidth - totalSiblingsWidth - totalGaps);
+                  } else {
+                    maxAllowedWidth = Math.max(300, containerWidth - 20);
+                  }
+                }
+
+                if (newWidth >= 120 && newWidth <= maxAllowedWidth) {
+                  el.style.width = `${newWidth}px`;
+                } else if (newWidth > maxAllowedWidth) {
+                  el.style.width = `${maxAllowedWidth}px`;
+                }
               }
             }
 
@@ -6189,7 +6843,26 @@ class SeatingChartApp {
           });
         }
 
-        // 3. Clean Group Layouts (only target group layout keys, not row metadata keys!)
+        // 4. Clean Free Form Layout
+        if (Array.isArray(currentClass.freeform)) {
+          const seen = new Set();
+          currentClass.freeform = currentClass.freeform.filter(name => {
+            if (allowedNames.has(name) && !seen.has(name)) {
+              seen.add(name);
+              return true;
+            }
+            return false;
+          });
+        }
+        if (currentClass.freeformPositions && typeof currentClass.freeformPositions === 'object') {
+          Object.keys(currentClass.freeformPositions).forEach(name => {
+            if (!allowedNames.has(name)) {
+              delete currentClass.freeformPositions[name];
+            }
+          });
+        }
+
+        // 5. Clean Group Layouts (only target group layout keys, not row metadata keys!)
         ['half', 'third', 'fourth', 'fifth', 'sixth'].forEach(layoutKey => {
           const groups = currentClass.layoutsData ? currentClass.layoutsData[layoutKey] : null;
           if (Array.isArray(groups)) {
@@ -6207,7 +6880,7 @@ class SeatingChartApp {
           }
         });
 
-        // 4. Ensure active group layout is populated if empty
+        // 6. Ensure active group layout is populated if empty
         const activeLayout = currentClass.layout || 'rows';
         if (['half', 'third', 'fourth', 'fifth', 'sixth'].includes(activeLayout)) {
           const numGroups = activeLayout === 'half' ? 2 : activeLayout === 'third' ? 3 : activeLayout === 'fourth' ? 4 : activeLayout === 'fifth' ? 5 : 6;
@@ -6215,6 +6888,11 @@ class SeatingChartApp {
           if (!gArr || !Array.isArray(gArr) || gArr.length < numGroups || gArr.flat().length === 0) {
             if (!currentClass.layoutsData) currentClass.layoutsData = {};
             currentClass.layoutsData[activeLayout] = this.autoBalanceGroups([...allowedNames], numGroups);
+          }
+        } else if (activeLayout === 'freeform') {
+          if (!currentClass.freeform || currentClass.freeform.length === 0) {
+            currentClass.freeform = [...allowedNames];
+            this.initInitialFreeformPositions(currentClass);
           }
         }
 
@@ -6398,7 +7076,7 @@ class SeatingChartApp {
           this.syncUnplacedWithClassList(currentClass);
 
           const layout = currentClass.layout;
-          ['rows', 'lines', 'circle', 'half', 'third', 'fourth', 'fifth', 'sixth'].forEach(l => {
+          ['rows', 'lines', 'circle', 'half', 'third', 'fourth', 'fifth', 'sixth', 'freeform'].forEach(l => {
             const btn = document.getElementById(`btnLayout${l.charAt(0).toUpperCase() + l.slice(1)}`);
             if (btn) btn.classList.toggle('active', layout === l);
           });
@@ -6485,16 +7163,25 @@ class SeatingChartApp {
             currentClass.circle = currentClass.circle.map(n => n === r.original ? r.newName : n);
           }
 
-          // 4. Update group layouts
+          // 4. Update freeform
+          if (Array.isArray(currentClass.freeform)) {
+            currentClass.freeform = currentClass.freeform.map(n => n === r.original ? r.newName : n);
+          }
+          if (currentClass.freeformPositions && currentClass.freeformPositions[r.original]) {
+            currentClass.freeformPositions[r.newName] = currentClass.freeformPositions[r.original];
+            delete currentClass.freeformPositions[r.original];
+          }
+
+          // 5. Update group layouts
           if (currentClass.layoutsData) {
-            ['half', 'third', 'fourth', 'fifth'].forEach(key => {
+            ['half', 'third', 'fourth', 'fifth', 'sixth'].forEach(key => {
               if (Array.isArray(currentClass.layoutsData[key])) {
                 currentClass.layoutsData[key] = currentClass.layoutsData[key].map(g => Array.isArray(g) ? g.map(n => n === r.original ? r.newName : n) : []);
               }
             });
           }
 
-          // 5. Update unplacedStudents
+          // 6. Update unplacedStudents
           if (Array.isArray(currentClass.unplacedStudents)) {
             currentClass.unplacedStudents = currentClass.unplacedStudents.map(n => n === r.original ? r.newName : n);
           }
@@ -6555,6 +7242,12 @@ class SeatingChartApp {
         }
         if (Array.isArray(currentClass.circle)) {
           currentClass.circle = currentClass.circle.filter(name => name !== studentName);
+        }
+        if (Array.isArray(currentClass.freeform)) {
+          currentClass.freeform = currentClass.freeform.filter(name => name !== studentName);
+        }
+        if (currentClass.freeformPositions && currentClass.freeformPositions[studentName]) {
+          delete currentClass.freeformPositions[studentName];
         }
         if (currentClass.layoutsData) {
           ['half', 'third', 'fourth', 'fifth', 'sixth'].forEach(key => {
@@ -7267,9 +7960,139 @@ class SeatingChartApp {
           this.renderLinesLayout(container, currentClass);
         } else if (layout === 'circle') {
           this.renderCircleLayout(container, currentClass);
+        } else if (layout === 'freeform') {
+          this.renderFreeformLayout(container, currentClass);
         } else {
           this.renderGroupedLayout(container, currentClass, layout);
         }
+      }
+
+      renderFreeformLayout(container, currentClass) {
+        container.className = 'chart-container layout-freeform';
+        container.style.cssText = 'display: flex; justify-content: center; align-items: flex-start; width: auto; min-width: 100%; max-width: none; padding: 14px 16px 24px 16px; box-sizing: border-box;';
+
+        const box = document.createElement('div');
+        box.className = 'freeform-canvas-box';
+        box.id = 'freeformCanvasBox';
+
+        const sizeKey = 'freeform';
+        const savedSize = (currentClass.containerSizes && currentClass.containerSizes[sizeKey]) || null;
+        
+        const defaultWidth = 880;
+        const defaultHeight = 520;
+
+        const boxWidth = (savedSize && savedSize.width) ? savedSize.width : defaultWidth;
+        const boxHeight = (savedSize && savedSize.height) ? savedSize.height : defaultHeight;
+
+        box.style.width = `${boxWidth}px`;
+        box.style.height = `${boxHeight}px`;
+        box.style.minWidth = '320px';
+        box.style.minHeight = '240px';
+        box.style.background = 'rgba(226, 232, 240, 0.5)';
+        box.style.overflow = 'visible';
+
+        this.makeResizable(box, sizeKey);
+
+        const badge = document.createElement('div');
+        badge.className = 'group-header-badge';
+        const freeformStudents = currentClass.freeform || [];
+        badge.textContent = `Free Form (${freeformStudents.length})`;
+        box.appendChild(badge);
+
+        box.ondragover = (e) => this.handleDragOver(e);
+        box.ondragenter = (e) => {
+          if (this.isEditMode) {
+            e.preventDefault();
+            box.classList.add('drag-over');
+          }
+        };
+        box.ondragleave = (e) => {
+          if (this.isEditMode && !box.contains(e.relatedTarget)) {
+            box.classList.remove('drag-over');
+          }
+        };
+        box.ondrop = (e) => this.handleDropOnFreeform(e, box);
+
+        this.initInitialFreeformPositions(currentClass, boxWidth);
+
+        if (freeformStudents.length === 0) {
+          const placeholder = document.createElement('div');
+          placeholder.style.cssText = 'position: absolute; top: 45%; left: 0; right: 0; text-align: center; color: var(--text-muted); font-size: 0.95rem; font-style: italic; user-select: none; pointer-events: none;';
+          placeholder.textContent = 'Drag students anywhere in this Free Form space';
+          box.appendChild(placeholder);
+        } else {
+          freeformStudents.forEach(studentName => {
+            const pos = (currentClass.freeformPositions && currentClass.freeformPositions[studentName]) || { x: 18, y: 18 };
+            const seatEl = this.createSeatElement(studentName, null);
+            seatEl.style.position = 'absolute';
+            seatEl.style.left = `${pos.x}px`;
+            seatEl.style.top = `${pos.y}px`;
+            seatEl.style.margin = '0';
+            seatEl.style.zIndex = '5';
+
+            seatEl.ondragover = (e) => this.handleDragOver(e);
+            seatEl.ondrop = (e) => {
+              this.handleDropOnFreeform(e, box);
+            };
+
+            box.appendChild(seatEl);
+          });
+        }
+
+        container.appendChild(box);
+      }
+
+      handleDropOnFreeform(e, box) {
+        if (!this.isEditMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const canvasEl = box || document.getElementById('freeformCanvasBox');
+        if (canvasEl) canvasEl.classList.remove('drag-over');
+        if (!this.draggedStudentName) return;
+
+        const currentClass = this.getCurrentClass();
+        if (!currentClass || currentClass.layout !== 'freeform') return;
+
+        if (!canvasEl) return;
+
+        const rect = canvasEl.getBoundingClientRect();
+        const cardWidth = 110;
+        const cardHeight = 74;
+
+        let dropX = e.clientX - rect.left - (cardWidth / 2);
+        let dropY = e.clientY - rect.top - (cardHeight / 2);
+
+        const maxX = Math.max(10, rect.width - cardWidth - 10);
+        const maxY = Math.max(10, rect.height - cardHeight - 10);
+
+        dropX = Math.max(10, Math.min(maxX, dropX));
+        dropY = Math.max(10, Math.min(maxY, dropY));
+
+        if (!currentClass.freeformPositions || typeof currentClass.freeformPositions !== 'object') {
+          currentClass.freeformPositions = {};
+        }
+
+        currentClass.freeformPositions[this.draggedStudentName] = {
+          x: Math.round(dropX),
+          y: Math.round(dropY)
+        };
+
+        if (Array.isArray(currentClass.unplacedStudents)) {
+          currentClass.unplacedStudents = currentClass.unplacedStudents.filter(n => n !== this.draggedStudentName);
+        }
+
+        if (!Array.isArray(currentClass.freeform)) {
+          currentClass.freeform = [];
+        }
+
+        if (!currentClass.freeform.includes(this.draggedStudentName)) {
+          currentClass.freeform.push(this.draggedStudentName);
+        }
+
+        this.resetDragState();
+        this.saveData();
+        this.render();
       }
 
       renderLinesLayout(container, currentClass) {
@@ -7951,8 +8774,15 @@ class SeatingChartApp {
           if (Array.isArray(currentClass.circle)) {
             currentClass.circle = currentClass.circle.map(n => n === oldKey ? newFirstName : n);
           }
+          if (Array.isArray(currentClass.freeform)) {
+            currentClass.freeform = currentClass.freeform.map(n => n === oldKey ? newFirstName : n);
+          }
+          if (currentClass.freeformPositions && currentClass.freeformPositions[oldKey]) {
+            currentClass.freeformPositions[newFirstName] = currentClass.freeformPositions[oldKey];
+            delete currentClass.freeformPositions[oldKey];
+          }
           if (currentClass.layoutsData) {
-            ['half', 'third', 'fourth', 'fifth'].forEach(key => {
+            ['half', 'third', 'fourth', 'fifth', 'sixth'].forEach(key => {
               if (Array.isArray(currentClass.layoutsData[key])) {
                 currentClass.layoutsData[key] = currentClass.layoutsData[key].map(g => Array.isArray(g) ? g.map(n => n === oldKey ? newFirstName : n) : []);
               }
